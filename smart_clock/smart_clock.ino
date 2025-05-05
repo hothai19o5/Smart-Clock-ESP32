@@ -1,0 +1,432 @@
+#include <WiFi.h>
+#include <WebServer.h>    // Thư viện WebServer cho ESP32, cung cấp các hàm để tạo web server như on, begin, send, v.v.
+#include <DNSServer.h>    // Thư viện DNSServer cho ESP32, cung cấp các hàm để tạo DNS server như start, stop, v.v.
+#include <Preferences.h>  // Thư viện Preferences cho ESP32, cung cấp các hàm để lưu trữ và truy xuất dữ liệu trong bộ nhớ flash như begin, putString, getString, v.v.
+
+String ssid;                 // SSID của mạng WiFi, cấu hình từ Web Server, lưu trong bộ nhớ flash
+String password;             // Password của mạng WiFi, cấu hình từ Web Server, lưu trong bộ nhớ flash
+String location;             // Địa điểm để lấy dữ liệu thời tiết, lưu trong flash
+bool formatTime12 = false;   // 12 Hour Time Format ?
+bool temperatureInC = true;  // Temperature in Celius or F
+
+const char *apSSID = "ESP32_Config";  // Tên mạng WiFi Access Point (AP) khi không kết nối được WiFi, tên mạng là ESP32_Config
+const byte DNS_PORT = 53;             // Cổng DNS, mặc định là 53, cổng này sẽ được sử dụng để tạo DNS server cho ESP32 khi ở chế độ Access Point (AP)
+
+WebServer server(80);  // Khởi tạo WebServer trên cổng 80, cổng này sẽ được sử dụng để tạo web server cho ESP32, cổng này sẽ được sử dụng để nhận thông tin cấu hình từ người dùng
+DNSServer dns;         // Đối tượng dns để tạo DNS server cho ESP32, cổng này sẽ được sử dụng để chuyển hướng tất cả các request lạ về trang cấu hình của ESP32
+
+Preferences preferences;  // Khởi tạo đối tượng Preferences để lưu trữ và truy xuất dữ liệu trong bộ nhớ flash
+
+/**
+ * @brief Hàm xử lý trang chính của web server, sẽ hiển thị trang cấu hình cho người dùng
+ */
+void handleRoot() {
+  String page = R"rawliteral(
+  <!DOCTYPE html>
+  <html lang="en">
+
+  <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Settings</title>
+      <style>
+          /* Reset default margins and padding */
+          * {
+              margin: 0;
+              padding: 0;
+              box-sizing: border-box;
+          }
+
+          /* Body styling */
+          body {
+              font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+              background-color: #f4f7fa;
+              color: #333;
+              line-height: 1.6;
+              display: flex;
+              justify-content: center;
+              align-items: center;
+              min-height: 100vh;
+              padding: 20px;
+          }
+
+          /* Main container */
+          .container {
+              background-color: #fff;
+              padding: 30px;
+              border-radius: 10px;
+              box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+              max-width: 500px;
+              width: 100%;
+          }
+
+          /* Heading */
+          h1 {
+              font-size: 2rem;
+              color: #2c3e50;
+              margin-bottom: 20px;
+              text-align: center;
+          }
+
+          /* Form styling */
+          form {
+              display: flex;
+              flex-direction: column;
+              gap: 15px;
+          }
+
+          /* Input fields */
+          input[type="text"],
+          input[type="password"] {
+              padding: 10px;
+              font-size: 1rem;
+              border: 1px solid #ddd;
+              border-radius: 5px;
+              width: 100%;
+              transition: border-color 0.3s ease;
+          }
+
+          input[type="text"]:focus,
+          input[type="password"]:focus {
+              border-color: #2196F3;
+              outline: none;
+              box-shadow: 0 0 5px rgba(33, 150, 243, 0.3);
+          }
+
+          /* Labels */
+          label {
+              font-size: 1rem;
+              color: #555;
+              margin-bottom: 5px;
+          }
+
+          /* Select dropdown */
+          select {
+              padding: 10px;
+              font-size: 1rem;
+              border: 1px solid #ddd;
+              border-radius: 5px;
+              width: 100%;
+              transition: border-color 0.3s ease;
+              background-color: #CCCCCC;
+              -webkit-appearance: none;
+          }
+
+          select:focus {
+              border-color: #2196F3;
+              outline: none;
+              box-shadow: 0 0 5px rgba(33, 150, 243, 0.3);
+          }
+
+          /* Switch styling (unchanged) */
+          .switch {
+              position: relative;
+              display: inline-block;
+              width: 60px;
+              height: 34px;
+          }
+
+          .switch input {
+              opacity: 0;
+              width: 0;
+              height: 0;
+          }
+
+          .slider {
+              position: absolute;
+              cursor: pointer;
+              top: 0;
+              left: 0;
+              right: 0;
+              bottom: 0;
+              background-color: #ccc;
+              transition: .4s;
+          }
+
+          .slider:before {
+              position: absolute;
+              content: "";
+              height: 26px;
+              width: 26px;
+              left: 4px;
+              bottom: 4px;
+              background-color: white;
+              transition: .4s;
+          }
+
+          input:checked+.slider {
+              background-color: #2196F3;
+          }
+
+          input:focus+.slider {
+              box-shadow: 0 0 1px #2196F3;
+          }
+
+          input:checked+.slider:before {
+              transform: translateX(26px);
+          }
+
+          .slider.round {
+              border-radius: 34px;
+          }
+
+          .slider.round:before {
+              border-radius: 50%;
+          }
+
+          /* Submit button */
+          input[type="submit"] {
+              background-color: #2196F3;
+              color: #fff;
+              padding: 12px;
+              border: none;
+              border-radius: 5px;
+              font-size: 1rem;
+              cursor: pointer;
+              transition: background-color 0.3s ease;
+              margin-top: 10px;
+          }
+
+          input[type="submit"]:hover {
+              background-color: #1976D2;
+          }
+
+          /* Form row for better alignment */
+          .form-row {
+              display: flex;
+              flex-direction: column;
+              gap: 5px;
+          }
+
+          /* Checkbox row */
+          .checkbox-row {
+              display: flex;
+              align-items: center;
+              gap: 10px;
+              margin-top: 0px;
+          }
+
+          /* Toggle switch row */
+          .toggle-row {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+          }
+
+          /* Responsive design */
+          @media (max-width: 600px) {
+              .container {
+                  padding: 20px;
+              }
+
+              h1 {
+                  font-size: 1.5rem;
+              }
+          }
+      </style>
+  </head>
+
+  <body>
+      <div class="container">
+          <h1 style="font-size: 32px; color:#2196F3">Smart Clock</h1>
+          <form action="/submit" method="POST">
+              <div class="form-row">
+                  <label for="wifi">WiFi</label>
+                  <input type="text" id="wifi" name="ssid" required>
+              </div>
+              <div class="form-row">
+                  <label for="password">Password</label>
+                  <input type="password" id="password" name="password" required>
+              </div>
+              <div class="checkbox-row">
+                  <input type="checkbox" style="padding: 5px; margin-left: 5px; width: 16px; height: 16px;" id="showPassword" onclick="myFunction()">
+                  <label for="showPassword">Show Password</label>
+              </div>
+              <div class="toggle-row">
+                  <span>Show Temperature in Celsius</span>
+                  <label class="switch">
+                      <input type="checkbox" name="celsius" checked>
+                      <span class="slider round"></span>
+                  </label>
+              </div>
+              <div class="toggle-row">
+                  <span>12-Hour Time Format</span>
+                  <label class="switch">
+                      <input type="checkbox" name="time_format">
+                      <span class="slider round"></span>
+                  </label>
+              </div>
+              <div class="form-row">
+                  <label for="location">Location</label>
+                  <select id="location" name="location" required>
+                      <option value="Hanoi">Hà Nội</option>
+                      <option value="Thanh Hoa">Thanh Hóa</option>
+                      <option value="Da Nang">Đà Nẵng</option>
+                      <option value="Ho Chi Minh">Hồ Chí Minh</option>
+                  </select>
+              </div>
+              <input type="submit" value="Submit">
+          </form>
+      </div>
+  </body>
+
+  <script>
+      function myFunction() {
+          var x = document.getElementById("password");
+          if (x.type === "password") {
+              x.type = "text";
+          } else {
+              x.type = "password";
+          }
+      }
+  </script>
+
+  </html>
+  )rawliteral";
+  server.send(200, "text/html", page);
+}
+
+/**
+ * * Hàm xử lý khi người dùng gửi thông tin cấu hình từ trang web, sẽ nhận thông tin SSID, Password và Location, ...  từ người dùng
+ */
+void handleSubmit() {
+  /**
+   * Hàm arg(const char* name) trong WebServer là hàm để lấy thông tin từ request POST, ở đây là lấy thông tin SSID, Password và IP Address từ người dùng
+   */
+  ssid = server.arg("ssid");          // Nhận thông tin SSID từ người dùng
+  password = server.arg("password");  // Nhận thông tin Password từ người dùng
+  location = server.arg("location");  // Nhận thông tin địa chỉ IP của Server từ người dùng
+  formatTime12 = (server.arg("time_format") == "on") ? true : false;
+  temperatureInC = (server.arg("celsius") == "on") ? true : false;
+
+  /**
+   * Hàm send(int code, const char* content_type, const char* content) trong WebServer là hàm để gửi trang thông báo kết nối thành công
+   * @param {int} code là mã trạng thái HTTP, 200 là OK
+   * @param {const char*} content_type là kiểu nội dung, ở đây là "text/html"
+   * @param {const char*} content là nội dung trang thông báo kết nối thành công
+   */
+  server.send(200, "text/html", "<h1 style='font-size: 48px; color:#2196F3; margin: 48px;'>Connecting...</h1>");
+
+  /**
+   * Hàm begin() trong Preferences là hàm để khởi tạo đối tượng Preferences, mở file cấu hình wifi trong bộ nhớ flash
+   * @param {const char*} namespace là tên file cấu hình wifi, có thể là bất kỳ tên nào, ở đây là "wifi"
+   * @param {bool} readOnly là tham số để chỉ định chế độ mở file, nếu là true thì chỉ mở file để đọc, nếu là false thì mở file để ghi
+   */
+  preferences.begin("storage", false);
+  /**
+   * Hàm putString(const char* key, const char* value) trong Preferences là hàm để lưu trữ dữ liệu vào file cấu hình wifi trong bộ nhớ flash
+   * @param {const char*} key là tên khóa để lưu trữ dữ liệu, có thể là bất kỳ tên nào, ở đây là "ssid", "password", "server"
+   * @param {const char*} value là giá trị cần lưu trữ, ở đây là ssid, password, websockets_server_host
+   */
+  preferences.putString("ssid", ssid);
+  preferences.putString("password", password);
+  preferences.putString("location", location);
+  // Chuyển 2 biến sang kiểu String để lưu trong flash
+  String ftStr = String(formatTime12);
+  String tempStr = String(temperatureInC);
+  preferences.putString("formatTime12", ftStr);
+  preferences.putString("temperatureInC", tempStr);
+
+  // Hàm end() trong Preferences là hàm để đóng file cấu hình wifi trong bộ nhớ flash
+  preferences.end();
+
+  delay(1000);
+
+  ESP.restart();  // Khởi động lại ESP32 để áp dụng cấu hình mới
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  preferences.begin("storage", true);  // Mở flash ở chỉ đọc
+  // Lấy dữ liệu từ flash
+  ssid = preferences.getString("ssid", "");
+  password = preferences.getString("password", "");
+  location = preferences.getString("location", "");
+  formatTime12 = preferences.getString("formatTime12", "0") == "1";
+  temperatureInC = preferences.getString("temperatureInC", "0") == "1";
+
+  preferences.end();  // Đóng flash
+
+  WiFi.mode(WIFI_AP_STA);  // Bật cả AP và STA
+
+  // Cấu hình chế độ Station (kết nối vào WiFi)
+  WiFi.begin(ssid.c_str(), password.c_str());
+
+  int attempts = 0;  // Biến đếm số lần thử kết nối
+  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+    delay(500);
+    Serial.print(".");
+    attempts++;
+  }
+
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("\nCan't connect to Wifi.");
+  }
+
+  // Cấu hình chế độ Access Point (phát WiFi)
+  WiFi.softAP(apSSID);
+  IPAddress myIP = WiFi.softAPIP();  // Lấy địa chỉ IP của ESP32 khi ở chế độ Access Point (AP)
+
+  Serial.println(myIP);
+
+  /**
+   * Hàm start(uint16_t port, const char* hostname, IPAddress ip) trong DNSServer là hàm để khởi động DNS server
+   * @param {uint16_t} port là cổng DNS server, mặc định là 53
+   * @param {const char*} hostname là tên miền của DNS server, có thể là bất kỳ tên nào, ở đây là "*"
+   * @param {IPAddress} ip là địa chỉ IP của ESP32 khi ở chế độ Access Point (AP), địa chỉ IP này sẽ được sử dụng để chuyển hướng tất cả các request lạ về trang cấu hình của ESP32
+   */
+  dns.start(DNS_PORT, "*", myIP);
+
+  /**
+   * Hàm on(const char* uri, WebServer::THandlerFunction handler) trong WebServer là hàm để đăng ký hàm xử lý cho request GET tới trang chính của web server
+   * @param {const char*} uri là đường dẫn của trang web, ở đây là "/"
+   * @param {WebServer::THandlerFunction} handler là hàm xử lý cho request GET tới trang chính của web server, ở đây là handleRoot
+   */
+  server.on("/", handleRoot);
+  /**
+   * Hàm on(const char* uri, HTTPMethod method, WebServer::THandlerFunction handler) trong WebServer là hàm để đăng ký hàm xử lý cho request POST tới trang cấu hình của web server
+   * @param {const char*} uri là đường dẫn của trang web, ở đây là "/submit"
+   * @param {HTTPMethod} method là phương thức HTTP, ở đây là HTTP_POST, nếu không có thì mặc định là GET
+   * @param {WebServer::THandlerFunction} handler là hàm xử lý cho request POST tới trang cấu hình của web server, ở đây là handleSubmit
+   */
+  server.on("/submit", HTTP_POST, handleSubmit);
+
+  /**
+   * Hàm onNotFound(WebServer::THandlerFunction handler) trong WebServer là hàm để đăng ký hàm xử lý cho request không tìm thấy trang web
+   */
+  server.onNotFound([]() {
+    /**
+     * Hàm sendHeader(const char* name, const char* value, bool first) trong WebServer là hàm để gửi header cho response, header để chuyển hướng về trang chính của web server
+     * @param {const char*} name là tên header, ở đây là "Location"
+     * @param {const char*} value là giá trị header, ở đây là "/" để chuyển hướng về trang chính của web server
+     * @param {bool} first là tham số để chỉ định header đầu tiên hay không, nếu là true thì là header đầu tiên, nếu là false thì không phải, header đầu tiên là Location, header thứ 2 là Content-Type
+     */
+    server.sendHeader("Location", "/", true);
+    /**
+     * Hàm send(int code, const char* content_type, const char* content) trong WebServer là hàm để gửi trang thông báo không tìm thấy trang web, với mã trạng thái 302 thì trang web sẽ tự động chuyển hướng về trang chính của web server
+     * @param {int} code là mã trạng thái HTTP, 302 là chuyển hướng, chuyển hướng tới trang chính của web server vì đã gửi header Location
+     * @param {const char*} content_type là kiểu nội dung, ở đây là "text/plain"
+     * @param {const char*} content là nội dung trang thông báo không tìm thấy trang web
+     */
+    server.send(302, "text/plain", "");
+  });
+
+  // Khởi động web server trên cổng 80
+  server.begin();
+}
+
+void loop() {
+  while (WiFi.status() != WL_CONNECTED) {
+    /**
+     * Hàm dns.processNextRequest() trong ESP32 là hàm để xử lý các yêu cầu DNS trong chế độ AP
+     * @note Hàm này sẽ được gọi trong chế độ AP để xử lý các yêu cầu DNS từ client
+     */
+    dns.processNextRequest();
+    /**
+     * Hàm server.handleClient() trong ESP32 là hàm để xử lý các yêu cầu HTTP từ client
+     * @note Hàm này sẽ được gọi trong chế độ AP để xử lý các yêu cầu HTTP từ client
+     */
+    server.handleClient();
+  }
+}
