@@ -2,6 +2,8 @@
 #include <WebServer.h>    // Thư viện WebServer cho ESP32, cung cấp các hàm để tạo web server như on, begin, send, v.v.
 #include <DNSServer.h>    // Thư viện DNSServer cho ESP32, cung cấp các hàm để tạo DNS server như start, stop, v.v.
 #include <Preferences.h>  // Thư viện Preferences cho ESP32, cung cấp các hàm để lưu trữ và truy xuất dữ liệu trong bộ nhớ flash như begin, putString, getString, v.v.
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
 
 String ssid;                 // SSID của mạng WiFi, cấu hình từ Web Server, lưu trong bộ nhớ flash
 String password;             // Password của mạng WiFi, cấu hình từ Web Server, lưu trong bộ nhớ flash
@@ -9,13 +11,18 @@ String location;             // Địa điểm để lấy dữ liệu thời ti
 bool formatTime12 = false;   // 12 Hour Time Format ?
 bool temperatureInC = true;  // Temperature in Celius or F
 
-const char *apSSID = "ESP32_Config";  // Tên mạng WiFi Access Point (AP) khi không kết nối được WiFi, tên mạng là ESP32_Config
+const char* apSSID = "ESP32_Config";  // Tên mạng WiFi Access Point (AP) khi không kết nối được WiFi, tên mạng là ESP32_Config
 const byte DNS_PORT = 53;             // Cổng DNS, mặc định là 53, cổng này sẽ được sử dụng để tạo DNS server cho ESP32 khi ở chế độ Access Point (AP)
 
 WebServer server(80);  // Khởi tạo WebServer trên cổng 80, cổng này sẽ được sử dụng để tạo web server cho ESP32, cổng này sẽ được sử dụng để nhận thông tin cấu hình từ người dùng
 DNSServer dns;         // Đối tượng dns để tạo DNS server cho ESP32, cổng này sẽ được sử dụng để chuyển hướng tất cả các request lạ về trang cấu hình của ESP32
 
 Preferences preferences;  // Khởi tạo đối tượng Preferences để lưu trữ và truy xuất dữ liệu trong bộ nhớ flash
+
+HTTPClient http;
+
+const char* apiKey = "9360c650915a41aa9ea124221252104";
+String url = "http://api.weatherapi.com/v1/current.json?key=";
 
 /**
  * @brief Hàm xử lý trang chính của web server, sẽ hiển thị trang cấu hình cho người dùng
@@ -260,9 +267,9 @@ void handleRoot() {
                   <label for="location">Location</label>
                   <select id="location" name="location" required>
                       <option value="Hanoi">Hà Nội</option>
-                      <option value="Thanh Hoa">Thanh Hóa</option>
-                      <option value="Da Nang">Đà Nẵng</option>
-                      <option value="Ho Chi Minh">Hồ Chí Minh</option>
+                      <option value="Thanh%20Hoa">Thanh Hóa</option>
+                      <option value="Da%20Nang">Đà Nẵng</option>
+                      <option value="Ho%20Chi%20Minh">Hồ Chí Minh</option>
                   </select>
               </div>
               <input type="submit" value="Submit">
@@ -417,16 +424,64 @@ void setup() {
 }
 
 void loop() {
-  while (WiFi.status() != WL_CONNECTED) {
-    /**
+  /**
      * Hàm dns.processNextRequest() trong ESP32 là hàm để xử lý các yêu cầu DNS trong chế độ AP
      * @note Hàm này sẽ được gọi trong chế độ AP để xử lý các yêu cầu DNS từ client
      */
-    dns.processNextRequest();
-    /**
+  dns.processNextRequest();
+  /**
      * Hàm server.handleClient() trong ESP32 là hàm để xử lý các yêu cầu HTTP từ client
      * @note Hàm này sẽ được gọi trong chế độ AP để xử lý các yêu cầu HTTP từ client
      */
-    server.handleClient();
+  server.handleClient();
+
+  preferences.begin("storage", true);  // Mở flash ở chỉ đọc
+  // Lấy dữ liệu từ flash
+  location = preferences.getString("location", "");
+  formatTime12 = preferences.getString("formatTime12", "0") == "1";
+  temperatureInC = preferences.getString("temperatureInC", "0") == "1";
+
+  preferences.end();  // Đóng flash
+
+  String urlQuery = url + apiKey + "&q=" + location;
+  http.begin(urlQuery);
+
+  int httpCode = http.GET();
+
+  if (httpCode > 0) {
+    String payload = http.getString();
+
+    // Tạo vùng nhớ cho JSON parser
+    const size_t capacity = 1024;
+    DynamicJsonDocument doc(capacity);
+    DeserializationError error = deserializeJson(doc, payload);
+
+    if (!error) {
+      // Lấy dữ liệu từ JSON
+      String city = doc["location"]["name"];
+      String localtime = doc["location"]["localtime"];
+      float temp = doc["current"]["temp_c"];
+      String condition = doc["current"]["condition"]["text"];
+      int humidity = doc["current"]["humidity"];
+      float wind = doc["current"]["wind_kph"];
+
+      // In ra Serial
+      Serial.println("City: " + city);
+      Serial.println("Localtime: " + localtime);
+      Serial.println("Temperature: " + String(temp));
+      Serial.println("Condition: " + condition);
+      Serial.println("Humidity: " + String(humidity));
+      Serial.println("Wind (kph): " + String(wind));
+    } else {
+      Serial.print("JSON parse error: ");
+      Serial.println(error.c_str());
+    }
+  } else {
+    Serial.println("HTTP request failed");
+    Serial.println(payload);
   }
+
+  http.end();
+
+  delay(3000);
 }
