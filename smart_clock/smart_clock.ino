@@ -1,34 +1,51 @@
 #include <WiFi.h>
-#include <WebServer.h>    // Thư viện WebServer cho ESP32, cung cấp các hàm để tạo web server như on, begin, send, v.v.
-#include <DNSServer.h>    // Thư viện DNSServer cho ESP32, cung cấp các hàm để tạo DNS server như start, stop, v.v.
-#include <Preferences.h>  // Thư viện Preferences cho ESP32, cung cấp các hàm để lưu trữ và truy xuất dữ liệu trong bộ nhớ flash như begin, putString, getString, v.v.
+#include <WebServer.h>   // Thư viện WebServer cho ESP32, cung cấp các hàm để tạo web server như on, begin, send, v.v.
+#include <DNSServer.h>   // Thư viện DNSServer cho ESP32, cung cấp các hàm để tạo DNS server như start, stop, v.v.
+#include <Preferences.h> // Thư viện Preferences cho ESP32, cung cấp các hàm để lưu trữ và truy xuất dữ liệu trong bộ nhớ flash như begin, putString, getString, v.v.
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include <TFT_eSPI.h>
+#include <icon.h>
 
-String ssid;                 // SSID của mạng WiFi, cấu hình từ Web Server, lưu trong bộ nhớ flash
-String password;             // Password của mạng WiFi, cấu hình từ Web Server, lưu trong bộ nhớ flash
-String location;             // Địa điểm để lấy dữ liệu thời tiết, lưu trong flash
-bool formatTime12 = false;   // 12 Hour Time Format ?
-bool temperatureInC = true;  // Temperature in Celius or F
+String ssid;                // SSID của mạng WiFi, cấu hình từ Web Server, lưu trong bộ nhớ flash
+String password;            // Password của mạng WiFi, cấu hình từ Web Server, lưu trong bộ nhớ flash
+String location;            // Địa điểm để lấy dữ liệu thời tiết, lưu trong flash
+bool formatTime12 = false;  // 12 Hour Time Format ?
+bool temperatureInC = true; // Temperature in Celius or F
 
-const char* apSSID = "ESP32_Config";  // Tên mạng WiFi Access Point (AP) khi không kết nối được WiFi, tên mạng là ESP32_Config
-const byte DNS_PORT = 53;             // Cổng DNS, mặc định là 53, cổng này sẽ được sử dụng để tạo DNS server cho ESP32 khi ở chế độ Access Point (AP)
+unsigned long lastUpdateScreen = 0;
 
-WebServer server(80);  // Khởi tạo WebServer trên cổng 80, cổng này sẽ được sử dụng để tạo web server cho ESP32, cổng này sẽ được sử dụng để nhận thông tin cấu hình từ người dùng
-DNSServer dns;         // Đối tượng dns để tạo DNS server cho ESP32, cổng này sẽ được sử dụng để chuyển hướng tất cả các request lạ về trang cấu hình của ESP32
+String city;
+String localTimeStr;
+float temperature;
+String condition;
+float humidity;
+String hour;
+String minute;
+String day_month_year;
+int clouds;
 
-Preferences preferences;  // Khởi tạo đối tượng Preferences để lưu trữ và truy xuất dữ liệu trong bộ nhớ flash
+const char *apSSID = "ESP32_Config"; // Tên mạng WiFi Access Point (AP) khi không kết nối được WiFi, tên mạng là ESP32_Config
+const byte DNS_PORT = 53;            // Cổng DNS, mặc định là 53, cổng này sẽ được sử dụng để tạo DNS server cho ESP32 khi ở chế độ Access Point (AP)
+
+WebServer server(80); // Khởi tạo WebServer trên cổng 80, cổng này sẽ được sử dụng để tạo web server cho ESP32, cổng này sẽ được sử dụng để nhận thông tin cấu hình từ người dùng
+DNSServer dns;        // Đối tượng dns để tạo DNS server cho ESP32, cổng này sẽ được sử dụng để chuyển hướng tất cả các request lạ về trang cấu hình của ESP32
+
+TFT_eSPI tft = TFT_eSPI();
+
+Preferences preferences; // Khởi tạo đối tượng Preferences để lưu trữ và truy xuất dữ liệu trong bộ nhớ flash
 
 HTTPClient http;
 
-const char* apiKey = "9360c650915a41aa9ea124221252104";
+const char *apiKey = "9360c650915a41aa9ea124221252104";
 String url = "http://api.weatherapi.com/v1/current.json?key=";
 
 /**
  * @brief Hàm xử lý trang chính của web server, sẽ hiển thị trang cấu hình cho người dùng
  */
-void handleRoot() {
-  String page = R"rawliteral(
+void handleRoot()
+{
+    String page = R"rawliteral(
   <!DOCTYPE html>
   <html lang="en">
 
@@ -290,119 +307,206 @@ void handleRoot() {
 
   </html>
   )rawliteral";
-  server.send(200, "text/html", page);
+    server.send(200, "text/html", page);
 }
 
 /**
  * * Hàm xử lý khi người dùng gửi thông tin cấu hình từ trang web, sẽ nhận thông tin SSID, Password và Location, ...  từ người dùng
  */
-void handleSubmit() {
-  /**
-   * Hàm arg(const char* name) trong WebServer là hàm để lấy thông tin từ request POST, ở đây là lấy thông tin SSID, Password và IP Address từ người dùng
-   */
-  ssid = server.arg("ssid");          // Nhận thông tin SSID từ người dùng
-  password = server.arg("password");  // Nhận thông tin Password từ người dùng
-  location = server.arg("location");  // Nhận thông tin địa chỉ IP của Server từ người dùng
-  formatTime12 = (server.arg("time_format") == "on") ? true : false;
-  temperatureInC = (server.arg("celsius") == "on") ? true : false;
+void handleSubmit()
+{
+    /**
+     * Hàm arg(const char* name) trong WebServer là hàm để lấy thông tin từ request POST, ở đây là lấy thông tin SSID, Password và IP Address từ người dùng
+     */
+    ssid = server.arg("ssid");         // Nhận thông tin SSID từ người dùng
+    password = server.arg("password"); // Nhận thông tin Password từ người dùng
+    location = server.arg("location"); // Nhận thông tin địa chỉ IP của Server từ người dùng
+    formatTime12 = (server.arg("time_format") == "on") ? true : false;
+    temperatureInC = (server.arg("celsius") == "on") ? true : false;
 
-  /**
-   * Hàm send(int code, const char* content_type, const char* content) trong WebServer là hàm để gửi trang thông báo kết nối thành công
-   * @param {int} code là mã trạng thái HTTP, 200 là OK
-   * @param {const char*} content_type là kiểu nội dung, ở đây là "text/html"
-   * @param {const char*} content là nội dung trang thông báo kết nối thành công
-   */
-  server.send(200, "text/html", "<h1 style='font-size: 48px; color:#2196F3; margin: 48px;'>Connecting...</h1>");
+    /**
+     * Hàm send(int code, const char* content_type, const char* content) trong WebServer là hàm để gửi trang thông báo kết nối thành công
+     * @param {int} code là mã trạng thái HTTP, 200 là OK
+     * @param {const char*} content_type là kiểu nội dung, ở đây là "text/html"
+     * @param {const char*} content là nội dung trang thông báo kết nối thành công
+     */
+    server.send(200, "text/html", "<h1 style='font-size: 48px; color:#2196F3; margin: 48px;'>Connecting...</h1>");
 
-  /**
-   * Hàm begin() trong Preferences là hàm để khởi tạo đối tượng Preferences, mở file cấu hình wifi trong bộ nhớ flash
-   * @param {const char*} namespace là tên file cấu hình wifi, có thể là bất kỳ tên nào, ở đây là "wifi"
-   * @param {bool} readOnly là tham số để chỉ định chế độ mở file, nếu là true thì chỉ mở file để đọc, nếu là false thì mở file để ghi
-   */
-  preferences.begin("storage", false);
-  /**
-   * Hàm putString(const char* key, const char* value) trong Preferences là hàm để lưu trữ dữ liệu vào file cấu hình wifi trong bộ nhớ flash
-   * @param {const char*} key là tên khóa để lưu trữ dữ liệu, có thể là bất kỳ tên nào, ở đây là "ssid", "password", "server"
-   * @param {const char*} value là giá trị cần lưu trữ, ở đây là ssid, password, websockets_server_host
-   */
-  preferences.putString("ssid", ssid);
-  preferences.putString("password", password);
-  preferences.putString("location", location);
-  // Chuyển 2 biến sang kiểu String để lưu trong flash
-  String ftStr = String(formatTime12);
-  String tempStr = String(temperatureInC);
-  preferences.putString("formatTime12", ftStr);
-  preferences.putString("temperatureInC", tempStr);
+    /**
+     * Hàm begin() trong Preferences là hàm để khởi tạo đối tượng Preferences, mở file cấu hình wifi trong bộ nhớ flash
+     * @param {const char*} namespace là tên file cấu hình wifi, có thể là bất kỳ tên nào, ở đây là "wifi"
+     * @param {bool} readOnly là tham số để chỉ định chế độ mở file, nếu là true thì chỉ mở file để đọc, nếu là false thì mở file để ghi
+     */
+    preferences.begin("storage", false);
+    /**
+     * Hàm putString(const char* key, const char* value) trong Preferences là hàm để lưu trữ dữ liệu vào file cấu hình wifi trong bộ nhớ flash
+     * @param {const char*} key là tên khóa để lưu trữ dữ liệu, có thể là bất kỳ tên nào, ở đây là "ssid", "password", "server"
+     * @param {const char*} value là giá trị cần lưu trữ, ở đây là ssid, password, websockets_server_host
+     */
+    preferences.putString("ssid", ssid);
+    preferences.putString("password", password);
+    preferences.putString("location", location);
+    // Chuyển 2 biến sang kiểu String để lưu trong flash
+    String ftStr = String(formatTime12);
+    String tempStr = String(temperatureInC);
+    preferences.putString("formatTime12", ftStr);
+    preferences.putString("temperatureInC", tempStr);
 
-  // Hàm end() trong Preferences là hàm để đóng file cấu hình wifi trong bộ nhớ flash
-  preferences.end();
+    // Hàm end() trong Preferences là hàm để đóng file cấu hình wifi trong bộ nhớ flash
+    preferences.end();
 
-  delay(1000);
+    delay(1000);
 
-  ESP.restart();  // Khởi động lại ESP32 để áp dụng cấu hình mới
+    ESP.restart(); // Khởi động lại ESP32 để áp dụng cấu hình mới
 }
 
-void setup() {
-  Serial.begin(115200);
+void updateScreen(String city, String hour, String minute, String day_month_year, float temperature, String condition, float humidity, int clouds)
+{
+    
+    // Debug info
+    Serial.println("Displaying values:");
+    Serial.println("City: [" + city + "]");
+    Serial.println("Condition: [" + condition + "]");
+    Serial.println("Day: [" + day_month_year + "]");
+    Serial.println("Temperature: " + String(temperature));
+    Serial.println("Humidity: " + String(humidity));
 
-  preferences.begin("storage", true);  // Mở flash ở chỉ đọc
-  // Lấy dữ liệu từ flash
-  ssid = preferences.getString("ssid", "");
-  password = preferences.getString("password", "");
-  location = preferences.getString("location", "");
-  formatTime12 = preferences.getString("formatTime12", "0") == "1";
-  temperatureInC = preferences.getString("temperatureInC", "0") == "1";
+    // Xóa
+    tft.fillScreen(TFT_BLACK);
+    // font 2 = 16px
+    // font 4 = 26px
+    // font 6 = 40px
+    // font 7 = 60px
+    
+    // Thành phố - kiểm tra city không rỗng
+    if (city.length() > 0) {
+        tft.setTextColor(TFT_GREENYELLOW);
+        tft.drawString(city, 25, 10, 4);
+    }
 
-  preferences.end();  // Đóng flash
+    // Điều kiện thời tiết - kiểm tra condition không rỗng
+    if (condition.length() > 0) {
+        tft.setTextColor(TFT_WHITE);
+        tft.drawString(condition, 25, 36, 4);
+    }
 
-  WiFi.mode(WIFI_AP_STA);  // Bật cả AP và STA
+    tft.pushImage(170, 0, 50, 50, myBitmapArray[0]); // Vẽ icon thời tiết lên
 
-  // Cấu hình chế độ Station (kết nối vào WiFi)
-  WiFi.begin(ssid.c_str(), password.c_str());
+    // Giờ và phút
+    tft.setTextColor(TFT_YELLOW);
+    tft.drawString(hour, 10, 70, 7);
+    tft.setTextColor(TFT_RED);
+    tft.drawString(minute, 80, 70, 7);
 
-  int attempts = 0;  // Biến đếm số lần thử kết nối
-  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
-    delay(500);
-    Serial.print(".");
-    attempts++;
-  }
+    // Mây
+    tft.fillRect(150, 70, 85, 30, TFT_WHITE);
+    tft.setTextColor(TFT_BLACK); // Đổi màu chữ thành đen để hiển thị trên nền trắng
+    tft.drawString("Clouds", 155, 75, 4);
+    tft.setTextColor(TFT_BLUE);
+    tft.drawString(String(clouds), 165, 105, 6);
 
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("\nCan't connect to Wifi.");
-  }
+    // Ngày
+    if (day_month_year.length() > 0) {
+        tft.setTextColor(TFT_WHITE);
+        tft.drawString(day_month_year, 10, 155, 4);
+    }
+    
+    // Ngày trong tuần (hard-coded "Sun" - cần cải thiện)
+    tft.setTextColor(TFT_YELLOW);
+    tft.drawString("Mon", 155, 155, 4);
 
-  // Cấu hình chế độ Access Point (phát WiFi)
-  WiFi.softAP(apSSID);
-  IPAddress myIP = WiFi.softAPIP();  // Lấy địa chỉ IP của ESP32 khi ở chế độ Access Point (AP)
+    tft.pushImage(10, 185, 24, 24, myBitmapArray[2]);
+    tft.pushImage(10, 215, 24, 24, myBitmapArray[1]);
 
-  Serial.println(myIP);
+    // Nhiệt độ - kiểm tra giá trị hợp lệ
+    if (!isnan(temperature)) {
+        tft.setTextColor(TFT_WHITE);
+        if (temperatureInC) {
+            tft.drawString(String(temperature, 1) + " C", 110, 185, 4);
+        } else {
+            float tempF = (temperature * 9.0 / 5.0) + 32.0;
+            tft.drawString(String(tempF, 1) + " F", 110, 185, 4);
+        }
+    }
 
-  /**
-   * Hàm start(uint16_t port, const char* hostname, IPAddress ip) trong DNSServer là hàm để khởi động DNS server
-   * @param {uint16_t} port là cổng DNS server, mặc định là 53
-   * @param {const char*} hostname là tên miền của DNS server, có thể là bất kỳ tên nào, ở đây là "*"
-   * @param {IPAddress} ip là địa chỉ IP của ESP32 khi ở chế độ Access Point (AP), địa chỉ IP này sẽ được sử dụng để chuyển hướng tất cả các request lạ về trang cấu hình của ESP32
-   */
-  dns.start(DNS_PORT, "*", myIP);
+    // Độ ẩm - kiểm tra giá trị hợp lệ
+    if (!isnan(humidity)) {
+        tft.setTextColor(TFT_WHITE);
+        // Chuyển humidity thành int để tránh hiển thị số thập phân
+        int humidityInt = (int)humidity;
+        tft.drawString(String(humidityInt) + " %", 110, 215, 4);
+    }
+}
 
-  /**
-   * Hàm on(const char* uri, WebServer::THandlerFunction handler) trong WebServer là hàm để đăng ký hàm xử lý cho request GET tới trang chính của web server
-   * @param {const char*} uri là đường dẫn của trang web, ở đây là "/"
-   * @param {WebServer::THandlerFunction} handler là hàm xử lý cho request GET tới trang chính của web server, ở đây là handleRoot
-   */
-  server.on("/", handleRoot);
-  /**
-   * Hàm on(const char* uri, HTTPMethod method, WebServer::THandlerFunction handler) trong WebServer là hàm để đăng ký hàm xử lý cho request POST tới trang cấu hình của web server
-   * @param {const char*} uri là đường dẫn của trang web, ở đây là "/submit"
-   * @param {HTTPMethod} method là phương thức HTTP, ở đây là HTTP_POST, nếu không có thì mặc định là GET
-   * @param {WebServer::THandlerFunction} handler là hàm xử lý cho request POST tới trang cấu hình của web server, ở đây là handleSubmit
-   */
-  server.on("/submit", HTTP_POST, handleSubmit);
+void setup()
+{
+    Serial.begin(115200);
 
-  /**
-   * Hàm onNotFound(WebServer::THandlerFunction handler) trong WebServer là hàm để đăng ký hàm xử lý cho request không tìm thấy trang web
-   */
-  server.onNotFound([]() {
+    tft.init();
+    tft.setRotation(0);
+    tft.fillScreen(TFT_BLACK);
+
+    preferences.begin("storage", true); // Mở flash ở chỉ đọc
+    // Lấy dữ liệu từ flash
+    ssid = preferences.getString("ssid", "");
+    password = preferences.getString("password", "");
+    location = preferences.getString("location", "");
+    formatTime12 = preferences.getString("formatTime12", "0") == "1";
+    temperatureInC = preferences.getString("temperatureInC", "0") == "1";
+
+    preferences.end(); // Đóng flash
+
+    WiFi.mode(WIFI_AP_STA); // Bật cả AP và STA
+
+    // Cấu hình chế độ Station (kết nối vào WiFi)
+    WiFi.begin(ssid.c_str(), password.c_str());
+
+    int attempts = 0; // Biến đếm số lần thử kết nối
+    while (WiFi.status() != WL_CONNECTED && attempts < 20)
+    {
+        delay(500);
+        Serial.print(".");
+        attempts++;
+    }
+
+    if (WiFi.status() != WL_CONNECTED)
+    {
+        Serial.println("\nCan't connect to Wifi.");
+    }
+
+    // Cấu hình chế độ Access Point (phát WiFi)
+    WiFi.softAP(apSSID);
+    IPAddress myIP = WiFi.softAPIP(); // Lấy địa chỉ IP của ESP32 khi ở chế độ Access Point (AP)
+
+    Serial.println(myIP);
+
+    /**
+     * Hàm start(uint16_t port, const char* hostname, IPAddress ip) trong DNSServer là hàm để khởi động DNS server
+     * @param {uint16_t} port là cổng DNS server, mặc định là 53
+     * @param {const char*} hostname là tên miền của DNS server, có thể là bất kỳ tên nào, ở đây là "*"
+     * @param {IPAddress} ip là địa chỉ IP của ESP32 khi ở chế độ Access Point (AP), địa chỉ IP này sẽ được sử dụng để chuyển hướng tất cả các request lạ về trang cấu hình của ESP32
+     */
+    dns.start(DNS_PORT, "*", myIP);
+
+    /**
+     * Hàm on(const char* uri, WebServer::THandlerFunction handler) trong WebServer là hàm để đăng ký hàm xử lý cho request GET tới trang chính của web server
+     * @param {const char*} uri là đường dẫn của trang web, ở đây là "/"
+     * @param {WebServer::THandlerFunction} handler là hàm xử lý cho request GET tới trang chính của web server, ở đây là handleRoot
+     */
+    server.on("/", handleRoot);
+    /**
+     * Hàm on(const char* uri, HTTPMethod method, WebServer::THandlerFunction handler) trong WebServer là hàm để đăng ký hàm xử lý cho request POST tới trang cấu hình của web server
+     * @param {const char*} uri là đường dẫn của trang web, ở đây là "/submit"
+     * @param {HTTPMethod} method là phương thức HTTP, ở đây là HTTP_POST, nếu không có thì mặc định là GET
+     * @param {WebServer::THandlerFunction} handler là hàm xử lý cho request POST tới trang cấu hình của web server, ở đây là handleSubmit
+     */
+    server.on("/submit", HTTP_POST, handleSubmit);
+
+    /**
+     * Hàm onNotFound(WebServer::THandlerFunction handler) trong WebServer là hàm để đăng ký hàm xử lý cho request không tìm thấy trang web
+     */
+    server.onNotFound([]()
+                      {
     /**
      * Hàm sendHeader(const char* name, const char* value, bool first) trong WebServer là hàm để gửi header cho response, header để chuyển hướng về trang chính của web server
      * @param {const char*} name là tên header, ở đây là "Location"
@@ -416,72 +520,117 @@ void setup() {
      * @param {const char*} content_type là kiểu nội dung, ở đây là "text/plain"
      * @param {const char*} content là nội dung trang thông báo không tìm thấy trang web
      */
-    server.send(302, "text/plain", "");
-  });
+    server.send(302, "text/plain", ""); });
 
-  // Khởi động web server trên cổng 80
-  server.begin();
+    // Khởi động web server trên cổng 80
+    server.begin();
 }
 
-void loop() {
-  /**
+void loop()
+{
+    /**
      * Hàm dns.processNextRequest() trong ESP32 là hàm để xử lý các yêu cầu DNS trong chế độ AP
      * @note Hàm này sẽ được gọi trong chế độ AP để xử lý các yêu cầu DNS từ client
      */
-  dns.processNextRequest();
-  /**
+    dns.processNextRequest();
+    /**
      * Hàm server.handleClient() trong ESP32 là hàm để xử lý các yêu cầu HTTP từ client
      * @note Hàm này sẽ được gọi trong chế độ AP để xử lý các yêu cầu HTTP từ client
      */
-  server.handleClient();
+    server.handleClient();
 
-  preferences.begin("storage", true);  // Mở flash ở chỉ đọc
-  // Lấy dữ liệu từ flash
-  location = preferences.getString("location", "");
-  formatTime12 = preferences.getString("formatTime12", "0") == "1";
-  temperatureInC = preferences.getString("temperatureInC", "0") == "1";
+    preferences.begin("storage", true); // Mở flash ở chỉ đọc
+    // Lấy dữ liệu từ flash
+    location = preferences.getString("location", "");
+    formatTime12 = preferences.getString("formatTime12", "0") == "1";
+    temperatureInC = preferences.getString("temperatureInC", "0") == "1";
 
-  preferences.end();  // Đóng flash
+    preferences.end(); // Đóng flash
 
-  String urlQuery = url + apiKey + "&q=" + location;
-  http.begin(urlQuery);
+    unsigned long currentMillis = millis();
+    if (currentMillis - lastUpdateScreen >= 10000)
+    {
+        lastUpdateScreen = currentMillis;
+        if (location.length() > 0)
+        {
+            String urlQuery = url + apiKey + "&q=" + location;
+            http.begin(urlQuery);
 
-  int httpCode = http.GET();
+            int httpCode = http.GET();
 
-  if (httpCode > 0) {
-    String payload = http.getString();
+            if (httpCode > 0)
+            {
+                String payload = http.getString();
 
-    // Tạo vùng nhớ cho JSON parser
-    const size_t capacity = 1024;
-    DynamicJsonDocument doc(capacity);
-    DeserializationError error = deserializeJson(doc, payload);
+                // Tạo vùng nhớ cho JSON parser
+                const size_t capacity = 1024;
+                DynamicJsonDocument doc(capacity);
+                DeserializationError error = deserializeJson(doc, payload);
 
-    if (!error) {
-      // Lấy dữ liệu từ JSON
-      String city = doc["location"]["name"];
-      String localtime = doc["location"]["localtime"];
-      float temp = doc["current"]["temp_c"];
-      String condition = doc["current"]["condition"]["text"];
-      int humidity = doc["current"]["humidity"];
-      float wind = doc["current"]["wind_kph"];
+                if (!error)
+                {
+                    // Lấy dữ liệu từ JSON
+                    city = doc["location"]["name"].as<String>();
+                    localTimeStr = doc["location"]["localtime"].as<String>(); // "2025-05-11 20:50"
+                    temperature = doc["current"]["temp_c"].as<float>();
+                    condition = doc["current"]["condition"]["text"].as<String>();
+                    humidity = doc["current"]["humidity"].as<float>();
+                    clouds = doc["current"]["cloud"].as<int>();
 
-      // In ra Serial
-      Serial.println("City: " + city);
-      Serial.println("Localtime: " + localtime);
-      Serial.println("Temperature: " + String(temp));
-      Serial.println("Condition: " + condition);
-      Serial.println("Humidity: " + String(humidity));
-      Serial.println("Wind (kph): " + String(wind));
-    } else {
-      Serial.print("JSON parse error: ");
-      Serial.println(error.c_str());
+                    if (localTimeStr.length() >= 16)
+                    {
+                        hour = localTimeStr.substring(11, 13);          // "20"
+                        minute = localTimeStr.substring(14, 16);        // "50"
+                        day_month_year = localTimeStr.substring(0, 10); // "2025-05-11"
+
+                        if (formatTime12 && hour.length() == 2)
+                        {
+                            int hourInt = hour.toInt();
+                            if (hourInt == 0)
+                            {
+                                hour = "12";
+                            }
+                            else if (hourInt > 12)
+                            {
+                                hour = String(hourInt - 12);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        Serial.println("Invalid localTimeStr format: " + localTimeStr);
+                    }
+
+                    Serial.println("City: " + city);
+                    Serial.println("Hour: " + hour);
+                    Serial.println("Minute: " + minute);
+                    Serial.println("Local Time: " + day_month_year);
+                    Serial.println("Temperature: " + (String)temperature);
+                    Serial.println("Condition: " + condition);
+                    Serial.println("Humidity: " + (String)humidity);
+                    Serial.println("Clouds: " + (String)clouds);
+                }
+                else
+                {
+                    Serial.print("JSON parse error: ");
+                    Serial.println(error.c_str());
+                    Serial.println(payload);
+                }
+            }
+            else
+            {
+                Serial.println("HTTP request failed");
+            }
+
+            http.end();
+        }
+        else
+        {
+            Serial.println("Location is empty, skipping API request");
+        }
+
+        updateScreen(city, hour, minute, day_month_year, temperature, condition, humidity, clouds);
     }
-  } else {
-    Serial.println("HTTP request failed");
-    Serial.println(payload);
-  }
 
-  http.end();
-
-  delay(3000);
+    delay(100);
 }
