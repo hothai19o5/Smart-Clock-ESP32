@@ -6,6 +6,11 @@
 #include <ArduinoJson.h>
 #include <TFT_eSPI.h>
 #include <icon.h>
+#include <gif.h>
+
+#include "NotoSansBold15.h"
+#include "NotoSansBold36.h"
+#include "ArialNarrow7.h"
 
 String ssid;                // SSID của mạng WiFi, cấu hình từ Web Server, lưu trong bộ nhớ flash
 String password;            // Password của mạng WiFi, cấu hình từ Web Server, lưu trong bộ nhớ flash
@@ -14,6 +19,8 @@ bool formatTime12 = false;  // 12 Hour Time Format ?
 bool temperatureInC = true; // Temperature in Celius or F
 
 unsigned long lastUpdateScreen = 0;
+unsigned long lastUpdateGif = 0;
+uint8_t currentFrame = 0;
 
 String city;
 String localTimeStr;
@@ -362,80 +369,92 @@ void handleSubmit()
 
 void updateScreen(String city, String hour, String minute, String day_month_year, float temperature, String condition, float humidity, int clouds)
 {
-    
-    // Debug info
-    Serial.println("Displaying values:");
-    Serial.println("City: [" + city + "]");
-    Serial.println("Condition: [" + condition + "]");
-    Serial.println("Day: [" + day_month_year + "]");
-    Serial.println("Temperature: " + String(temperature));
-    Serial.println("Humidity: " + String(humidity));
-
-    // Xóa
-    tft.fillScreen(TFT_BLACK);
-    // font 2 = 16px
-    // font 4 = 26px
-    // font 6 = 40px
-    // font 7 = 60px
-    
     // Thành phố - kiểm tra city không rỗng
     if (city.length() > 0) {
-        tft.setTextColor(TFT_GREENYELLOW);
+        // Fill text black
+        tft.fillRect(25, 10, 100, 15, TFT_BLACK);
+        tft.setTextColor(TFT_YELLOW, TFT_BLACK);
+        tft.loadFont(NotoSansBold15);
         tft.drawString(city, 25, 10, 4);
     }
 
     // Điều kiện thời tiết - kiểm tra condition không rỗng
     if (condition.length() > 0) {
-        tft.setTextColor(TFT_WHITE);
-        tft.drawString(condition, 25, 36, 4);
+        tft.fillRect(25, 25, 100, 15, TFT_BLACK);
+        tft.setTextColor(TFT_WHITE, TFT_BLACK);
+        tft.drawString(condition, 25, 25, 4);
     }
 
-    tft.pushImage(170, 0, 50, 50, myBitmapArray[0]); // Vẽ icon thời tiết lên
+    int hourInt = hour.toInt();
+    if(hourInt <= 18) {
+        tft.fillRect(190, 0, 50, 50, TFT_BLACK); // Xóa icon thời tiết cũ
+        tft.pushImage(190, 0, 50, 50, myBitmapArray[1]); // Vẽ icon thời tiết lên
+    }else {
+        tft.pushImage(190, 0, 50, 50, myBitmapArray[0]); // Vẽ icon thời tiết lên
+    }
 
     // Giờ và phút
-    tft.setTextColor(TFT_YELLOW);
+    tft.loadFont(ArialNarrow7);
+    tft.setTextColor(TFT_YELLOW, TFT_BLACK);
+    tft.fillRect(10, 70, 90, 75, TFT_BLACK);
     tft.drawString(hour, 10, 70, 7);
-    tft.setTextColor(TFT_RED);
-    tft.drawString(minute, 80, 70, 7);
+    tft.setTextColor(TFT_RED, TFT_BLACK);
+    tft.fillRect(100, 70, 85, 75, TFT_BLACK);
+    tft.drawString(minute, 100, 70, 7);
 
     // Mây
-    tft.fillRect(150, 70, 85, 30, TFT_WHITE);
-    tft.setTextColor(TFT_BLACK); // Đổi màu chữ thành đen để hiển thị trên nền trắng
-    tft.drawString("Clouds", 155, 75, 4);
-    tft.setTextColor(TFT_BLUE);
-    tft.drawString(String(clouds), 165, 105, 6);
+    tft.loadFont(NotoSansBold15);
+    tft.fillRect(185, 70, 55, 75, TFT_BLACK);
+    tft.fillRoundRect(188, 70, 52, 25, 10,TFT_WHITE);
+    tft.setTextColor(TFT_BLACK, TFT_WHITE); // Đổi màu chữ thành đen để hiển thị trên nền trắng
+    tft.drawString("Cloud", 192, 75, 4);
+    tft.loadFont(NotoSansBold36);
+    tft.setTextColor(TFT_BLUE, TFT_BLACK);
+    if(clouds >= 10) {
+        tft.drawString(String(clouds), 190, 105, 6);
+    } else {
+        tft.drawString(String(clouds), 200, 105, 6);
+    }
 
     // Ngày
     if (day_month_year.length() > 0) {
-        tft.setTextColor(TFT_WHITE);
-        tft.drawString(day_month_year, 10, 155, 4);
+        tft.loadFont(NotoSansBold15);
+        tft.setTextColor(TFT_WHITE, TFT_BLACK);
+        tft.fillRect(10, 150, 90, 10, TFT_BLACK);
+        tft.drawString(day_month_year, 10, 150, 4);
     }
     
     // Ngày trong tuần (hard-coded "Sun" - cần cải thiện)
-    tft.setTextColor(TFT_YELLOW);
-    tft.drawString("Mon", 155, 155, 4);
+    tft.setTextColor(TFT_YELLOW, TFT_BLACK);
+    tft.fillRect(155, 150, 35, 10, TFT_BLACK);
+    tft.drawString("Mon", 155, 150, 4);
 
-    tft.pushImage(10, 185, 24, 24, myBitmapArray[2]);
-    tft.pushImage(10, 215, 24, 24, myBitmapArray[1]);
+    // tft.pushImage(10, 175, 32, 32, myBitmapArray[3]);
+    // tft.pushImage(10, 207, 32, 32, myBitmapArray[2]);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.fillRect(10, 185, 165, 55, TFT_BLACK);
+    tft.drawString("Temperature", 10, 185, 6);
+    tft.drawString("Humidity", 10, 215, 6);
 
     // Nhiệt độ - kiểm tra giá trị hợp lệ
     if (!isnan(temperature)) {
-        tft.setTextColor(TFT_WHITE);
+        tft.setTextColor(TFT_WHITE, TFT_BLACK);
         if (temperatureInC) {
-            tft.drawString(String(temperature, 1) + " C", 110, 185, 4);
+            tft.drawString(String(temperature, 1) + " °C", 120, 185, 6);
         } else {
             float tempF = (temperature * 9.0 / 5.0) + 32.0;
-            tft.drawString(String(tempF, 1) + " F", 110, 185, 4);
+            tft.drawString(String(tempF, 1) + " °F", 120, 185, 6);
         }
     }
 
     // Độ ẩm - kiểm tra giá trị hợp lệ
     if (!isnan(humidity)) {
-        tft.setTextColor(TFT_WHITE);
+        tft.setTextColor(TFT_WHITE, TFT_BLACK);
         // Chuyển humidity thành int để tránh hiển thị số thập phân
         int humidityInt = (int)humidity;
-        tft.drawString(String(humidityInt) + " %", 110, 215, 4);
+        tft.drawString(String(humidityInt) + " %", 120, 215, 6);
     }
+
 }
 
 void setup()
@@ -548,7 +567,7 @@ void loop()
     preferences.end(); // Đóng flash
 
     unsigned long currentMillis = millis();
-    if (currentMillis - lastUpdateScreen >= 10000)
+    if (currentMillis - lastUpdateScreen >= 30000)
     {
         lastUpdateScreen = currentMillis;
         if (location.length() > 0)
@@ -600,15 +619,6 @@ void loop()
                     {
                         Serial.println("Invalid localTimeStr format: " + localTimeStr);
                     }
-
-                    Serial.println("City: " + city);
-                    Serial.println("Hour: " + hour);
-                    Serial.println("Minute: " + minute);
-                    Serial.println("Local Time: " + day_month_year);
-                    Serial.println("Temperature: " + (String)temperature);
-                    Serial.println("Condition: " + condition);
-                    Serial.println("Humidity: " + (String)humidity);
-                    Serial.println("Clouds: " + (String)clouds);
                 }
                 else
                 {
@@ -632,5 +642,11 @@ void loop()
         updateScreen(city, hour, minute, day_month_year, temperature, condition, humidity, clouds);
     }
 
-    delay(100);
+    if(currentMillis - lastUpdateGif >= 200) {
+        lastUpdateGif = currentMillis;
+        tft.pushImage(175, 175, 64, 64, myBitmapallArray[currentFrame]);
+        currentFrame ++;
+        currentFrame %= myBitmapallArray_LEN;
+    }
+    
 }
