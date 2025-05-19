@@ -1,10 +1,11 @@
 #include <WiFi.h>
-#include <WebServer.h>   // Thư viện WebServer cho ESP32, cung cấp các hàm để tạo web server như on, begin, send, v.v.
-#include <DNSServer.h>   // Thư viện DNSServer cho ESP32, cung cấp các hàm để tạo DNS server như start, stop, v.v.
-#include <Preferences.h> // Thư viện Preferences cho ESP32, cung cấp các hàm để lưu trữ và truy xuất dữ liệu trong bộ nhớ flash như begin, putString, getString, v.v.
+#include <WebServer.h>    // Thư viện WebServer cho ESP32, cung cấp các hàm để tạo web server như on, begin, send, v.v.
+#include <DNSServer.h>    // Thư viện DNSServer cho ESP32, cung cấp các hàm để tạo DNS server như start, stop, v.v.
+#include <Preferences.h>  // Thư viện Preferences cho ESP32, cung cấp các hàm để lưu trữ và truy xuất dữ liệu trong bộ nhớ flash như begin, putString, getString, v.v.
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <TFT_eSPI.h>
+#include <time.h>
 #include <icon.h>
 #include <gif.h>
 
@@ -12,35 +13,35 @@
 #include "NotoSansBold36.h"
 #include "ArialNarrow7.h"
 
-String ssid;                // SSID của mạng WiFi, cấu hình từ Web Server, lưu trong bộ nhớ flash
-String password;            // Password của mạng WiFi, cấu hình từ Web Server, lưu trong bộ nhớ flash
-String location;            // Địa điểm để lấy dữ liệu thời tiết, lưu trong flash
-bool formatTime12 = false;  // 12 Hour Time Format ?
-bool temperatureInC = true; // Temperature in Celius or F
+String ssid;                 // SSID của mạng WiFi, cấu hình từ Web Server, lưu trong bộ nhớ flash
+String password;             // Password của mạng WiFi, cấu hình từ Web Server, lưu trong bộ nhớ flash
+String location;             // Địa điểm để lấy dữ liệu thời tiết, lưu trong flash
+bool formatTime12 = false;   // 12 Hour Time Format ?
+bool temperatureInC = true;  // Temperature in Celius or F
 
+unsigned long lastQueryData = 0;
 unsigned long lastUpdateScreen = 0;
-unsigned long lastUpdateGif = 0;
 uint8_t currentFrame = 0;
 
 String city;
-String localTimeStr;
+char localTimeStr[64];
 float temperature;
 String condition;
 float humidity;
-String hour;
-String minute;
-String day_month_year;
-int clouds;
+char hour[8];
+char minute[8];
+float uv;
 
-const char *apSSID = "ESP32_Config"; // Tên mạng WiFi Access Point (AP) khi không kết nối được WiFi, tên mạng là ESP32_Config
-const byte DNS_PORT = 53;            // Cổng DNS, mặc định là 53, cổng này sẽ được sử dụng để tạo DNS server cho ESP32 khi ở chế độ Access Point (AP)
+const char *apSSID = "ESP32_Config";  // Tên mạng WiFi Access Point (AP) khi không kết nối được WiFi, tên mạng là ESP32_Config
+const byte DNS_PORT = 53;             // Cổng DNS, mặc định là 53, cổng này sẽ được sử dụng để tạo DNS server cho ESP32 khi ở chế độ Access Point (AP)
 
-WebServer server(80); // Khởi tạo WebServer trên cổng 80, cổng này sẽ được sử dụng để tạo web server cho ESP32, cổng này sẽ được sử dụng để nhận thông tin cấu hình từ người dùng
-DNSServer dns;        // Đối tượng dns để tạo DNS server cho ESP32, cổng này sẽ được sử dụng để chuyển hướng tất cả các request lạ về trang cấu hình của ESP32
+WebServer server(80);  // Khởi tạo WebServer trên cổng 80, cổng này sẽ được sử dụng để tạo web server cho ESP32, cổng này sẽ được sử dụng để nhận thông tin cấu hình từ người dùng
+DNSServer dns;         // Đối tượng dns để tạo DNS server cho ESP32, cổng này sẽ được sử dụng để chuyển hướng tất cả các request lạ về trang cấu hình của ESP32
 
 TFT_eSPI tft = TFT_eSPI();
+TFT_eSprite sprite = TFT_eSprite(&tft);  // Khởi tạo đối tượng sprite để vẽ hình ảnh không bị nháy
 
-Preferences preferences; // Khởi tạo đối tượng Preferences để lưu trữ và truy xuất dữ liệu trong bộ nhớ flash
+Preferences preferences;  // Khởi tạo đối tượng Preferences để lưu trữ và truy xuất dữ liệu trong bộ nhớ flash
 
 HTTPClient http;
 
@@ -50,9 +51,8 @@ String url = "http://api.weatherapi.com/v1/current.json?key=";
 /**
  * @brief Hàm xử lý trang chính của web server, sẽ hiển thị trang cấu hình cho người dùng
  */
-void handleRoot()
-{
-    String page = R"rawliteral(
+void handleRoot() {
+  String page = R"rawliteral(
   <!DOCTYPE html>
   <html lang="en">
 
@@ -314,339 +314,335 @@ void handleRoot()
 
   </html>
   )rawliteral";
-    server.send(200, "text/html", page);
+  server.send(200, "text/html", page);
 }
 
 /**
  * * Hàm xử lý khi người dùng gửi thông tin cấu hình từ trang web, sẽ nhận thông tin SSID, Password và Location, ...  từ người dùng
  */
-void handleSubmit()
-{
-    /**
+void handleSubmit() {
+  /**
      * Hàm arg(const char* name) trong WebServer là hàm để lấy thông tin từ request POST, ở đây là lấy thông tin SSID, Password và IP Address từ người dùng
      */
-    ssid = server.arg("ssid");         // Nhận thông tin SSID từ người dùng
-    password = server.arg("password"); // Nhận thông tin Password từ người dùng
-    location = server.arg("location"); // Nhận thông tin địa chỉ IP của Server từ người dùng
-    formatTime12 = (server.arg("time_format") == "on") ? true : false;
-    temperatureInC = (server.arg("celsius") == "on") ? true : false;
+  ssid = server.arg("ssid");          // Nhận thông tin SSID từ người dùng
+  password = server.arg("password");  // Nhận thông tin Password từ người dùng
+  location = server.arg("location");  // Nhận thông tin địa chỉ IP của Server từ người dùng
+  formatTime12 = (server.arg("time_format") == "on") ? true : false;
+  temperatureInC = (server.arg("celsius") == "on") ? true : false;
 
-    /**
+  /**
      * Hàm send(int code, const char* content_type, const char* content) trong WebServer là hàm để gửi trang thông báo kết nối thành công
      * @param {int} code là mã trạng thái HTTP, 200 là OK
      * @param {const char*} content_type là kiểu nội dung, ở đây là "text/html"
      * @param {const char*} content là nội dung trang thông báo kết nối thành công
      */
-    server.send(200, "text/html", "<h1 style='font-size: 48px; color:#2196F3; margin: 48px;'>Connecting...</h1>");
+  server.send(200, "text/html", "<h1 style='font-size: 48px; color:#2196F3; margin: 48px;'>Connecting...</h1>");
 
-    /**
+  /**
      * Hàm begin() trong Preferences là hàm để khởi tạo đối tượng Preferences, mở file cấu hình wifi trong bộ nhớ flash
      * @param {const char*} namespace là tên file cấu hình wifi, có thể là bất kỳ tên nào, ở đây là "wifi"
      * @param {bool} readOnly là tham số để chỉ định chế độ mở file, nếu là true thì chỉ mở file để đọc, nếu là false thì mở file để ghi
      */
-    preferences.begin("storage", false);
-    /**
+  preferences.begin("storage", false);
+  /**
      * Hàm putString(const char* key, const char* value) trong Preferences là hàm để lưu trữ dữ liệu vào file cấu hình wifi trong bộ nhớ flash
      * @param {const char*} key là tên khóa để lưu trữ dữ liệu, có thể là bất kỳ tên nào, ở đây là "ssid", "password", "server"
      * @param {const char*} value là giá trị cần lưu trữ, ở đây là ssid, password, websockets_server_host
      */
-    preferences.putString("ssid", ssid);
-    preferences.putString("password", password);
-    preferences.putString("location", location);
-    // Chuyển 2 biến sang kiểu String để lưu trong flash
-    String ftStr = String(formatTime12);
-    String tempStr = String(temperatureInC);
-    preferences.putString("formatTime12", ftStr);
-    preferences.putString("temperatureInC", tempStr);
+  preferences.putString("ssid", ssid);
+  preferences.putString("password", password);
+  preferences.putString("location", location);
+  // Chuyển 2 biến sang kiểu String để lưu trong flash
+  String ftStr = String(formatTime12);
+  String tempStr = String(temperatureInC);
+  preferences.putString("formatTime12", ftStr);
+  preferences.putString("temperatureInC", tempStr);
 
-    // Hàm end() trong Preferences là hàm để đóng file cấu hình wifi trong bộ nhớ flash
-    preferences.end();
+  // Hàm end() trong Preferences là hàm để đóng file cấu hình wifi trong bộ nhớ flash
+  preferences.end();
 
-    delay(1000);
+  delay(1000);
 
-    ESP.restart(); // Khởi động lại ESP32 để áp dụng cấu hình mới
+  ESP.restart();  // Khởi động lại ESP32 để áp dụng cấu hình mới
 }
 
-void updateScreen(String city, String hour, String minute, String day_month_year, float temperature, String condition, float humidity, int clouds)
-{
-    // Thành phố - kiểm tra city không rỗng
-    if (city.length() > 0) {
-        // Fill text black
-        tft.fillRect(25, 10, 100, 15, TFT_BLACK);
-        tft.setTextColor(TFT_YELLOW, TFT_BLACK);
-        tft.loadFont(NotoSansBold15);
-        tft.drawString(city, 25, 10, 4);
-    }
+void updateScreen(String city, char *hour, char *minute, char *localTimeStr, float temperature, String condition, float humidity, float uv) {
+  sprite.createSprite(235, 235);
+  sprite.fillSprite(TFT_BLACK);
 
-    // Điều kiện thời tiết - kiểm tra condition không rỗng
-    if (condition.length() > 0) {
-        tft.fillRect(25, 25, 100, 15, TFT_BLACK);
-        tft.setTextColor(TFT_WHITE, TFT_BLACK);
-        tft.drawString(condition, 25, 25, 4);
-    }
+  sprite.loadFont(NotoSansBold15);
 
-    int hourInt = hour.toInt();
-    if(hourInt <= 18) {
-        tft.fillRect(190, 0, 50, 50, TFT_BLACK); // Xóa icon thời tiết cũ
-        tft.pushImage(190, 0, 50, 50, myBitmapArray[1]); // Vẽ icon thời tiết lên
-    }else {
-        tft.pushImage(190, 0, 50, 50, myBitmapArray[0]); // Vẽ icon thời tiết lên
-    }
+  // City
+  sprite.setTextColor(TFT_YELLOW, TFT_BLACK);
+  sprite.drawString(city, 50, 20);
 
-    // Giờ và phút
-    tft.loadFont(ArialNarrow7);
-    tft.setTextColor(TFT_YELLOW, TFT_BLACK);
-    tft.fillRect(10, 70, 90, 75, TFT_BLACK);
-    tft.drawString(hour, 10, 70, 7);
-    tft.setTextColor(TFT_RED, TFT_BLACK);
-    tft.fillRect(100, 70, 85, 75, TFT_BLACK);
-    tft.drawString(minute, 100, 70, 7);
+  // Condition
+  sprite.setTextColor(TFT_WHITE, TFT_BLACK);
+  sprite.drawString(condition, 15, 40);
 
-    // Mây
-    tft.loadFont(NotoSansBold15);
-    tft.fillRect(185, 70, 55, 75, TFT_BLACK);
-    tft.fillRoundRect(188, 70, 52, 25, 10,TFT_WHITE);
-    tft.setTextColor(TFT_BLACK, TFT_WHITE); // Đổi màu chữ thành đen để hiển thị trên nền trắng
-    tft.drawString("Cloud", 192, 75, 4);
-    tft.loadFont(NotoSansBold36);
-    tft.setTextColor(TFT_BLUE, TFT_BLACK);
-    if(clouds >= 10) {
-        tft.drawString(String(clouds), 190, 105, 6);
-    } else {
-        tft.drawString(String(clouds), 200, 105, 6);
-    }
+  // uv
+  sprite.fillRoundRect(183, 75, 52, 25, 10, TFT_WHITE);
+  sprite.setTextColor(TFT_BLACK, TFT_WHITE);
+  sprite.drawString("UV", 200, 81, 4);
 
-    // Ngày
-    if (day_month_year.length() > 0) {
-        tft.loadFont(NotoSansBold15);
-        tft.setTextColor(TFT_WHITE, TFT_BLACK);
-        tft.fillRect(10, 150, 90, 10, TFT_BLACK);
-        tft.drawString(day_month_year, 10, 150, 4);
-    }
-    
-    // Ngày trong tuần (hard-coded "Sun" - cần cải thiện)
-    tft.setTextColor(TFT_YELLOW, TFT_BLACK);
-    tft.fillRect(155, 150, 35, 10, TFT_BLACK);
-    tft.drawString("Mon", 155, 150, 4);
+  // dd/mm/yy
+  sprite.setTextColor(TFT_WHITE, TFT_BLACK);
+  sprite.drawString(localTimeStr, 5, 150, 4);
 
-    // tft.pushImage(10, 175, 32, 32, myBitmapArray[3]);
-    // tft.pushImage(10, 207, 32, 32, myBitmapArray[2]);
-    tft.setTextColor(TFT_WHITE, TFT_BLACK);
-    tft.fillRect(10, 185, 165, 55, TFT_BLACK);
-    tft.drawString("Temperature", 10, 185, 6);
-    tft.drawString("Humidity", 10, 215, 6);
+  // Icon temperature & humidity
+  sprite.pushImage(5, 182, 24, 24, iconArray[10]);
+  sprite.pushImage(5, 210, 24, 24, iconArray[11]);
 
-    // Nhiệt độ - kiểm tra giá trị hợp lệ
-    if (!isnan(temperature)) {
-        tft.setTextColor(TFT_WHITE, TFT_BLACK);
-        if (temperatureInC) {
-            tft.drawString(String(temperature, 1) + " °C", 120, 185, 6);
-        } else {
-            float tempF = (temperature * 9.0 / 5.0) + 32.0;
-            tft.drawString(String(tempF, 1) + " °F", 120, 185, 6);
-        }
-    }
+  // Temperature bar & Humidity bar
+  sprite.fillRoundRect(35, 190, 70, 5, 2, TFT_WHITE);
+  sprite.fillRoundRect(35, 220, 70, 5, 2, TFT_WHITE);
+  sprite.fillRoundRect(35, 190, (int)temperature * 7 / 5, 5, 2, TFT_RED);
+  sprite.fillRoundRect(35, 220, (int)humidity * 7 / 10, 5, 2, TFT_BLUE);
 
-    // Độ ẩm - kiểm tra giá trị hợp lệ
-    if (!isnan(humidity)) {
-        tft.setTextColor(TFT_WHITE, TFT_BLACK);
-        // Chuyển humidity thành int để tránh hiển thị số thập phân
-        int humidityInt = (int)humidity;
-        tft.drawString(String(humidityInt) + " %", 120, 215, 6);
-    }
+  // Temperature
+  sprite.setTextColor(TFT_WHITE, TFT_BLACK);
+  if (temperatureInC)
+    sprite.drawString(String(temperature, 1) + " °C", 115, 185, 6);
+  else {
+    float tempF = (temperature * 9.0 / 5.0) + 32.0;
+    sprite.drawString(String(tempF, 1) + " °F", 115, 185, 6);
+  }
 
+  // Humidity
+  int humidityInt = (int)humidity;
+  sprite.setTextColor(TFT_WHITE, TFT_BLACK);
+  sprite.drawString(String(humidityInt) + " %", 115, 215, 6);
+
+  sprite.unloadFont();
+
+  if (condition == "Overcast") {
+    sprite.pushImage(180, 15, 50, 50, iconArray[5]);
+  } else if (condition == "Moderate or heavy rain") {
+    sprite.pushImage(180, 15, 50, 50, iconArray[8]);
+  } else if (condition == "Light drizzle") {
+    sprite.pushImage(180, 15, 50, 50, iconArray[2]);
+  } else if (condition == "Light rain") {
+    sprite.pushImage(180, 15, 50, 50, iconArray[7]);
+  } else if (condition == "Clear") {
+    sprite.pushImage(180, 15, 50, 50, iconArray[4]);
+  } else if (condition == "Sunny") {
+    sprite.pushImage(180, 15, 50, 50, iconArray[9]);
+  } else if (condition == "Cloudy") {
+    sprite.pushImage(180, 15, 50, 50, iconArray[0]);
+  } else if (condition == "Mist") {
+    sprite.pushImage(180, 15, 50, 50, iconArray[3]);
+  } else if (condition == "Fog") {
+    sprite.pushImage(180, 15, 50, 50, iconArray[1]);
+  } else if (condition == "Partly cloudy") {
+    sprite.pushImage(180, 15, 50, 50, iconArray[6]);
+  }
+
+  // Giờ và phút
+  sprite.loadFont(ArialNarrow7);
+  sprite.setTextColor(TFT_YELLOW, TFT_BLACK);
+  sprite.drawString(hour, 5, 70, 7);
+  sprite.setTextColor(TFT_RED, TFT_BLACK);
+  sprite.drawString(minute, 95, 70, 7);
+  sprite.unloadFont();
+
+  sprite.loadFont(NotoSansBold36);
+  if (uv <= 5) {
+    sprite.setTextColor(TFT_GREEN, TFT_BLACK);
+    sprite.drawString(String((int)uv), 195, 110, 6);
+  } else if (uv <= 7) {
+    sprite.setTextColor(TFT_YELLOW, TFT_BLACK);
+    sprite.drawString(String((int)uv), 195, 110, 6);
+  } else {
+    sprite.setTextColor(TFT_RED, TFT_BLACK);
+    sprite.drawString(String((int)uv), 195, 110, 6);
+  }
+  sprite.unloadFont();
+
+  sprite.pushImage(170, 170, 64, 64, myBitmapallArray[currentFrame]);
+  currentFrame = (currentFrame + 1) % myBitmapallArray_LEN;
+
+  // Hiển thị sprite lên màn hình chính
+  sprite.pushSprite(5, 0);
+  sprite.deleteSprite();  // Giải phóng RAM
 }
 
-void setup()
-{
-    Serial.begin(115200);
+void setup() {
+  Serial.begin(115200);
 
-    tft.init();
-    tft.setRotation(0);
-    tft.fillScreen(TFT_BLACK);
+  configTime(7 * 3600, 0, "pool.ntp.org");
 
-    preferences.begin("storage", true); // Mở flash ở chỉ đọc
-    // Lấy dữ liệu từ flash
-    ssid = preferences.getString("ssid", "");
-    password = preferences.getString("password", "");
-    location = preferences.getString("location", "");
-    formatTime12 = preferences.getString("formatTime12", "0") == "1";
-    temperatureInC = preferences.getString("temperatureInC", "0") == "1";
+  tft.init();
+  tft.setRotation(0);
+  tft.fillScreen(TFT_BLACK);
 
-    preferences.end(); // Đóng flash
+  sprite.setColorDepth(16);
+  sprite.setSwapBytes(true);  // nếu có dùng ảnh RGB565
 
-    WiFi.mode(WIFI_AP_STA); // Bật cả AP và STA
+  preferences.begin("storage", true);  // Mở flash ở chỉ đọc
+  // Lấy dữ liệu từ flash
+  ssid = preferences.getString("ssid", "");
+  password = preferences.getString("password", "");
+  location = preferences.getString("location", "");
+  formatTime12 = preferences.getString("formatTime12", "0") == "1";
+  temperatureInC = preferences.getString("temperatureInC", "0") == "1";
 
-    // Cấu hình chế độ Station (kết nối vào WiFi)
-    WiFi.begin(ssid.c_str(), password.c_str());
+  preferences.end();  // Đóng flash
 
-    int attempts = 0; // Biến đếm số lần thử kết nối
-    while (WiFi.status() != WL_CONNECTED && attempts < 20)
-    {
-        delay(500);
-        Serial.print(".");
-        attempts++;
-    }
+  WiFi.mode(WIFI_AP_STA);  // Bật cả AP và STA
 
-    if (WiFi.status() != WL_CONNECTED)
-    {
-        Serial.println("\nCan't connect to Wifi.");
-    }
+  // Cấu hình chế độ Station (kết nối vào WiFi)
+  WiFi.begin(ssid.c_str(), password.c_str());
 
-    // Cấu hình chế độ Access Point (phát WiFi)
-    WiFi.softAP(apSSID);
-    IPAddress myIP = WiFi.softAPIP(); // Lấy địa chỉ IP của ESP32 khi ở chế độ Access Point (AP)
+  int attempts = 0;  // Biến đếm số lần thử kết nối
+  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+    delay(500);
+    Serial.print(".");
+    attempts++;
+  }
 
-    Serial.println(myIP);
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("\nCan't connect to Wifi.");
+  }
 
-    /**
+  // Cấu hình chế độ Access Point (phát WiFi)
+  WiFi.softAP(apSSID);
+  IPAddress myIP = WiFi.softAPIP();  // Lấy địa chỉ IP của ESP32 khi ở chế độ Access Point (AP)
+
+  Serial.println(myIP);
+
+  /**
      * Hàm start(uint16_t port, const char* hostname, IPAddress ip) trong DNSServer là hàm để khởi động DNS server
      * @param {uint16_t} port là cổng DNS server, mặc định là 53
      * @param {const char*} hostname là tên miền của DNS server, có thể là bất kỳ tên nào, ở đây là "*"
      * @param {IPAddress} ip là địa chỉ IP của ESP32 khi ở chế độ Access Point (AP), địa chỉ IP này sẽ được sử dụng để chuyển hướng tất cả các request lạ về trang cấu hình của ESP32
      */
-    dns.start(DNS_PORT, "*", myIP);
+  dns.start(DNS_PORT, "*", myIP);
 
-    /**
+  /**
      * Hàm on(const char* uri, WebServer::THandlerFunction handler) trong WebServer là hàm để đăng ký hàm xử lý cho request GET tới trang chính của web server
      * @param {const char*} uri là đường dẫn của trang web, ở đây là "/"
      * @param {WebServer::THandlerFunction} handler là hàm xử lý cho request GET tới trang chính của web server, ở đây là handleRoot
      */
-    server.on("/", handleRoot);
-    /**
+  server.on("/", handleRoot);
+  /**
      * Hàm on(const char* uri, HTTPMethod method, WebServer::THandlerFunction handler) trong WebServer là hàm để đăng ký hàm xử lý cho request POST tới trang cấu hình của web server
      * @param {const char*} uri là đường dẫn của trang web, ở đây là "/submit"
      * @param {HTTPMethod} method là phương thức HTTP, ở đây là HTTP_POST, nếu không có thì mặc định là GET
      * @param {WebServer::THandlerFunction} handler là hàm xử lý cho request POST tới trang cấu hình của web server, ở đây là handleSubmit
      */
-    server.on("/submit", HTTP_POST, handleSubmit);
+  server.on("/submit", HTTP_POST, handleSubmit);
 
-    /**
+  /**
      * Hàm onNotFound(WebServer::THandlerFunction handler) trong WebServer là hàm để đăng ký hàm xử lý cho request không tìm thấy trang web
      */
-    server.onNotFound([]()
-                      {
+  server.onNotFound([]() {
     /**
-     * Hàm sendHeader(const char* name, const char* value, bool first) trong WebServer là hàm để gửi header cho response, header để chuyển hướng về trang chính của web server
-     * @param {const char*} name là tên header, ở đây là "Location"
-     * @param {const char*} value là giá trị header, ở đây là "/" để chuyển hướng về trang chính của web server
-     * @param {bool} first là tham số để chỉ định header đầu tiên hay không, nếu là true thì là header đầu tiên, nếu là false thì không phải, header đầu tiên là Location, header thứ 2 là Content-Type
-     */
+         * Hàm sendHeader(const char* name, const char* value, bool first) trong WebServer là hàm để gửi header cho response, header để chuyển hướng về trang chính của web server
+         * @param {const char*} name là tên header, ở đây là "Location"
+         * @param {const char*} value là giá trị header, ở đây là "/" để chuyển hướng về trang chính của web server
+         * @param {bool} first là tham số để chỉ định header đầu tiên hay không, nếu là true thì là header đầu tiên, nếu là false thì không phải, header đầu tiên là Location, header thứ 2 là Content-Type
+         */
     server.sendHeader("Location", "/", true);
     /**
-     * Hàm send(int code, const char* content_type, const char* content) trong WebServer là hàm để gửi trang thông báo không tìm thấy trang web, với mã trạng thái 302 thì trang web sẽ tự động chuyển hướng về trang chính của web server
-     * @param {int} code là mã trạng thái HTTP, 302 là chuyển hướng, chuyển hướng tới trang chính của web server vì đã gửi header Location
-     * @param {const char*} content_type là kiểu nội dung, ở đây là "text/plain"
-     * @param {const char*} content là nội dung trang thông báo không tìm thấy trang web
-     */
-    server.send(302, "text/plain", ""); });
+         * Hàm send(int code, const char* content_type, const char* content) trong WebServer là hàm để gửi trang thông báo không tìm thấy trang web, với mã trạng thái 302 thì trang web sẽ tự động chuyển hướng về trang chính của web server
+         * @param {int} code là mã trạng thái HTTP, 302 là chuyển hướng, chuyển hướng tới trang chính của web server vì đã gửi header Location
+         * @param {const char*} content_type là kiểu nội dung, ở đây là "text/plain"
+         * @param {const char*} content là nội dung trang thông báo không tìm thấy trang web
+         */
+    server.send(302, "text/plain", "");
+  });
 
-    // Khởi động web server trên cổng 80
-    server.begin();
+  // Khởi động web server trên cổng 80
+  server.begin();
 }
 
-void loop()
-{
-    /**
+void loop() {
+  /**
      * Hàm dns.processNextRequest() trong ESP32 là hàm để xử lý các yêu cầu DNS trong chế độ AP
      * @note Hàm này sẽ được gọi trong chế độ AP để xử lý các yêu cầu DNS từ client
      */
-    dns.processNextRequest();
-    /**
+  dns.processNextRequest();
+  /**
      * Hàm server.handleClient() trong ESP32 là hàm để xử lý các yêu cầu HTTP từ client
      * @note Hàm này sẽ được gọi trong chế độ AP để xử lý các yêu cầu HTTP từ client
      */
-    server.handleClient();
+  server.handleClient();
 
-    preferences.begin("storage", true); // Mở flash ở chỉ đọc
-    // Lấy dữ liệu từ flash
-    location = preferences.getString("location", "");
-    formatTime12 = preferences.getString("formatTime12", "0") == "1";
-    temperatureInC = preferences.getString("temperatureInC", "0") == "1";
+  preferences.begin("storage", true);  // Mở flash ở chỉ đọc
+  // Lấy dữ liệu từ flash
+  location = preferences.getString("location", "");
+  formatTime12 = preferences.getString("formatTime12", "0") == "1";
+  temperatureInC = preferences.getString("temperatureInC", "0") == "1";
 
-    preferences.end(); // Đóng flash
+  preferences.end();  // Đóng flash
 
-    unsigned long currentMillis = millis();
-    if (currentMillis - lastUpdateScreen >= 30000)
-    {
-        lastUpdateScreen = currentMillis;
-        if (location.length() > 0)
-        {
-            String urlQuery = url + apiKey + "&q=" + location;
-            http.begin(urlQuery);
+  struct tm timeinfo;
 
-            int httpCode = http.GET();
+  unsigned long currentMillis = millis();
+  if (currentMillis - lastQueryData >= 30000) {
+    lastQueryData = currentMillis;
+    if (location.length() > 0) {
+      String urlQuery = url + apiKey + "&q=" + location;
+      http.begin(urlQuery);
 
-            if (httpCode > 0)
-            {
-                String payload = http.getString();
+      int httpCode = http.GET();
 
-                // Tạo vùng nhớ cho JSON parser
-                const size_t capacity = 1024;
-                DynamicJsonDocument doc(capacity);
-                DeserializationError error = deserializeJson(doc, payload);
+      if (httpCode > 0) {
+        String payload = http.getString();
 
-                if (!error)
-                {
-                    // Lấy dữ liệu từ JSON
-                    city = doc["location"]["name"].as<String>();
-                    localTimeStr = doc["location"]["localtime"].as<String>(); // "2025-05-11 20:50"
-                    temperature = doc["current"]["temp_c"].as<float>();
-                    condition = doc["current"]["condition"]["text"].as<String>();
-                    humidity = doc["current"]["humidity"].as<float>();
-                    clouds = doc["current"]["cloud"].as<int>();
+        // Tạo vùng nhớ cho JSON parser
+        const size_t capacity = 1024;
+        DynamicJsonDocument doc(capacity);
+        DeserializationError error = deserializeJson(doc, payload);
 
-                    if (localTimeStr.length() >= 16)
-                    {
-                        hour = localTimeStr.substring(11, 13);          // "20"
-                        minute = localTimeStr.substring(14, 16);        // "50"
-                        day_month_year = localTimeStr.substring(0, 10); // "2025-05-11"
+        if (!error) {
+          // Lấy dữ liệu từ JSON
+          city = doc["location"]["name"].as<String>();
+          temperature = doc["current"]["temp_c"].as<float>();
+          condition = doc["current"]["condition"]["text"].as<String>();
+          humidity = doc["current"]["humidity"].as<float>();
+          uv = doc["current"]["uv"].as<float>();
 
-                        if (formatTime12 && hour.length() == 2)
-                        {
-                            int hourInt = hour.toInt();
-                            if (hourInt == 0)
-                            {
-                                hour = "12";
-                            }
-                            else if (hourInt > 12)
-                            {
-                                hour = String(hourInt - 12);
-                            }
-                        }
-                    }
-                    else
-                    {
-                        Serial.println("Invalid localTimeStr format: " + localTimeStr);
-                    }
-                }
-                else
-                {
-                    Serial.print("JSON parse error: ");
-                    Serial.println(error.c_str());
-                    Serial.println(payload);
-                }
-            }
-            else
-            {
-                Serial.println("HTTP request failed");
-            }
-
-            http.end();
+        } else {
+          Serial.print("JSON parse error: ");
+          Serial.println(error.c_str());
+          Serial.println(payload);
         }
-        else
-        {
-            Serial.println("Location is empty, skipping API request");
+      } else {
+        Serial.println("HTTP request failed");
+      }
+
+      http.end();
+
+      if (condition == "Patchy rain possible") {
+        condition = "Overcast";
+      } else if (condition == "Thundery outbreaks possible" || condition == "Heavy rain at times" || condition == "Moderate or heavy rain shower" || condition == "Torrential rain shower" || condition == "Moderate or heavy sleet showers" || condition == "Moderate or heavy rain with thunder") {
+        condition = "Moderate or heavy rain";
+      } else if (condition == "Patchy light drizzle" || condition == "Light rain shower" || condition == "Light sleet showers" || condition == "Patchy light rain with thunder") {
+        condition = "Light drizzle";
+      } else if (condition == "Patchy light rain" || condition == "Moderate rain at times" || condition == "Moderate rain") {
+        condition = "Light rain";
+      }
+
+      if (getLocalTime(&timeinfo)) {
+        strftime(localTimeStr, sizeof(localTimeStr), "%a, %d %b %Y", &timeinfo);
+        // %a = Mon/Tue/... | %d = ngày | %b = Jan/Feb/... | %Y = năm đầy đủ
+        if (formatTime12) {
+          strftime(hour, sizeof(hour), "%I", &timeinfo);
+        } else {
+          strftime(hour, sizeof(hour), "%H", &timeinfo);
         }
-
-        updateScreen(city, hour, minute, day_month_year, temperature, condition, humidity, clouds);
+        strftime(minute, sizeof(minute), "%M", &timeinfo);
+      } else {
+        Serial.println("Can't get time!");
+      }
+    } else {
+      Serial.println("Location is empty, skipping API request");
     }
+  }
 
-    if(currentMillis - lastUpdateGif >= 200) {
-        lastUpdateGif = currentMillis;
-        tft.pushImage(175, 175, 64, 64, myBitmapallArray[currentFrame]);
-        currentFrame ++;
-        currentFrame %= myBitmapallArray_LEN;
-    }
-    
+  if (currentMillis - lastUpdateScreen >= 200) {
+    lastUpdateScreen = currentMillis;
+    updateScreen(city, hour, minute, localTimeStr, temperature, condition, humidity, uv);
+  }
 }
