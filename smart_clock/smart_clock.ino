@@ -31,6 +31,7 @@ float humidity;
 char hour[8];
 char minute[8];
 float uv;
+String gif = "0";
 
 const char *apSSID = "ESP32_Config";  // Tên mạng WiFi Access Point (AP) khi không kết nối được WiFi, tên mạng là ESP32_Config
 const byte DNS_PORT = 53;             // Cổng DNS, mặc định là 53, cổng này sẽ được sử dụng để tạo DNS server cho ESP32 khi ở chế độ Access Point (AP)
@@ -57,259 +58,328 @@ void handleRoot() {
   <html lang="en">
 
   <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Settings</title>
-      <style>
-          /* Reset default margins and padding */
-          * {
-              margin: 0;
-              padding: 0;
-              box-sizing: border-box;
-          }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings</title>
+    <style>
+        /* Reset default margins and padding */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
-          /* Body styling */
-          body {
-              font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-              background-color: #f4f7fa;
-              color: #333;
-              line-height: 1.6;
-              display: flex;
-              justify-content: center;
-              align-items: center;
-              min-height: 100vh;
-              padding: 20px;
-          }
+        /* Body styling */
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f7fa;
+            color: #333;
+            line-height: 1.6;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
 
-          /* Main container */
-          .container {
-              background-color: #fff;
-              padding: 30px;
-              border-radius: 10px;
-              box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
-              max-width: 500px;
-              width: 100%;
-          }
+        /* Main container */
+        .container {
+            background-color: #fff;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+            max-width: 500px;
+            width: 100%;
+        }
 
-          /* Heading */
-          h1 {
-              font-size: 2rem;
-              color: #2c3e50;
-              margin-bottom: 20px;
-              text-align: center;
-          }
+        /* Heading */
+        h1 {
+            font-size: 2rem;
+            color: #2c3e50;
+            margin-bottom: 20px;
+            text-align: center;
+        }
 
-          /* Form styling */
-          form {
-              display: flex;
-              flex-direction: column;
-              gap: 15px;
-          }
+        /* Form styling */
+        form {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
 
-          /* Input fields */
-          input[type="text"],
-          input[type="password"] {
-              padding: 10px;
-              font-size: 1rem;
-              border: 1px solid #ddd;
-              border-radius: 5px;
-              width: 100%;
-              transition: border-color 0.3s ease;
-          }
+        /* Input fields */
+        input[type="text"],
+        input[type="password"] {
+            padding: 10px;
+            font-size: 1rem;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            width: 100%;
+            transition: border-color 0.3s ease;
+        }
 
-          input[type="text"]:focus,
-          input[type="password"]:focus {
-              border-color: #2196F3;
-              outline: none;
-              box-shadow: 0 0 5px rgba(33, 150, 243, 0.3);
-          }
+        input[type="text"]:focus,
+        input[type="password"]:focus {
+            border-color: #2196F3;
+            outline: none;
+            box-shadow: 0 0 5px rgba(33, 150, 243, 0.3);
+        }
 
-          /* Labels */
-          label {
-              font-size: 1rem;
-              color: #555;
-              margin-bottom: 5px;
-          }
+        /* Labels */
+        label {
+            font-size: 1rem;
+            color: #555;
+            margin-bottom: 5px;
+        }
 
-          /* Select dropdown */
-          select {
-              padding: 10px;
-              font-size: 1rem;
-              border: 1px solid #ddd;
-              border-radius: 5px;
-              width: 100%;
-              transition: border-color 0.3s ease;
-              background-color: #CCCCCC;
-              -webkit-appearance: none;
-          }
+        /* Select dropdown */
+        select {
+            padding: 10px;
+            font-size: 1rem;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            width: 100%;
+            transition: border-color 0.3s ease;
+            background-color: #e0e0e0;
+            -webkit-appearance: none;
+        }
 
-          select:focus {
-              border-color: #2196F3;
-              outline: none;
-              box-shadow: 0 0 5px rgba(33, 150, 243, 0.3);
-          }
+        select:focus {
+            border-color: #2196F3;
+            outline: none;
+            box-shadow: 0 0 5px rgba(33, 150, 243, 0.3);
+        }
 
-          /* Switch styling (unchanged) */
-          .switch {
-              position: relative;
-              display: inline-block;
-              width: 60px;
-              height: 34px;
-          }
+        /* Switch styling (unchanged) */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 60px;
+            height: 34px;
+        }
 
-          .switch input {
-              opacity: 0;
-              width: 0;
-              height: 0;
-          }
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
 
-          .slider {
-              position: absolute;
-              cursor: pointer;
-              top: 0;
-              left: 0;
-              right: 0;
-              bottom: 0;
-              background-color: #ccc;
-              transition: .4s;
-          }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+        }
 
-          .slider:before {
-              position: absolute;
-              content: "";
-              height: 26px;
-              width: 26px;
-              left: 4px;
-              bottom: 4px;
-              background-color: white;
-              transition: .4s;
-          }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 26px;
+            width: 26px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+        }
 
-          input:checked+.slider {
-              background-color: #2196F3;
-          }
+        input:checked+.slider {
+            background-color: #2196F3;
+        }
 
-          input:focus+.slider {
-              box-shadow: 0 0 1px #2196F3;
-          }
+        input:focus+.slider {
+            box-shadow: 0 0 1px #2196F3;
+        }
 
-          input:checked+.slider:before {
-              transform: translateX(26px);
-          }
+        input:checked+.slider:before {
+            transform: translateX(26px);
+        }
 
-          .slider.round {
-              border-radius: 34px;
-          }
+        .slider.round {
+            border-radius: 34px;
+        }
 
-          .slider.round:before {
-              border-radius: 50%;
-          }
+        .slider.round:before {
+            border-radius: 50%;
+        }
 
-          /* Submit button */
-          input[type="submit"] {
-              background-color: #2196F3;
-              color: #fff;
-              padding: 12px;
-              border: none;
-              border-radius: 5px;
-              font-size: 1rem;
-              cursor: pointer;
-              transition: background-color 0.3s ease;
-              margin-top: 10px;
-          }
+        /* Submit button */
+        input[type="submit"] {
+            background-color: #2196F3;
+            color: #fff;
+            padding: 12px;
+            border: none;
+            border-radius: 5px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+            margin-top: 10px;
+        }
 
-          input[type="submit"]:hover {
-              background-color: #1976D2;
-          }
+        input[type="submit"]:hover {
+            background-color: #1976D2;
+        }
 
-          /* Form row for better alignment */
-          .form-row {
-              display: flex;
-              flex-direction: column;
-              gap: 5px;
-          }
+        /* Form row for better alignment */
+        .form-row {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
 
-          /* Checkbox row */
-          .checkbox-row {
-              display: flex;
-              align-items: center;
-              gap: 10px;
-              margin-top: 0px;
-          }
+        /* Checkbox row */
+        .checkbox-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 0px;
+        }
 
-          /* Toggle switch row */
-          .toggle-row {
-              display: flex;
-              justify-content: space-between;
-              align-items: center;
-          }
+        /* Toggle switch row */
+        .toggle-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
 
-          /* Responsive design */
-          @media (max-width: 600px) {
-              .container {
-                  padding: 20px;
-              }
+        /* Responsive design */
+        @media (max-width: 600px) {
+            .container {
+                padding: 20px;
+            }
 
-              h1 {
-                  font-size: 1.5rem;
-              }
-          }
-      </style>
+            h1 {
+                font-size: 1.5rem;
+            }
+        }
+    </style>
   </head>
 
   <body>
-      <div class="container">
-          <h1 style="font-size: 32px; color:#2196F3">Smart Clock</h1>
-          <form action="/submit" method="POST">
-              <div class="form-row">
-                  <label for="wifi">WiFi</label>
-                  <input type="text" id="wifi" name="ssid" required>
-              </div>
-              <div class="form-row">
-                  <label for="password">Password</label>
-                  <input type="password" id="password" name="password" required>
-              </div>
-              <div class="checkbox-row">
-                  <input type="checkbox" style="padding: 5px; margin-left: 5px; width: 16px; height: 16px;" id="showPassword" onclick="myFunction()">
-                  <label for="showPassword">Show Password</label>
-              </div>
-              <div class="toggle-row">
-                  <span>Show Temperature in Celsius</span>
-                  <label class="switch">
-                      <input type="checkbox" name="celsius" checked>
-                      <span class="slider round"></span>
-                  </label>
-              </div>
-              <div class="toggle-row">
-                  <span>12-Hour Time Format</span>
-                  <label class="switch">
-                      <input type="checkbox" name="time_format">
-                      <span class="slider round"></span>
-                  </label>
-              </div>
-              <div class="form-row">
-                  <label for="location">Location</label>
-                  <select id="location" name="location" required>
-                      <option value="Hanoi">Hà Nội</option>
-                      <option value="Thanh%20Hoa">Thanh Hóa</option>
-                      <option value="Da%20Nang">Đà Nẵng</option>
-                      <option value="Ho%20Chi%20Minh">Hồ Chí Minh</option>
-                  </select>
-              </div>
-              <input type="submit" value="Submit">
-          </form>
-      </div>
+    <div class="container">
+        <h1 style="font-size: 32px; color:#2196F3">Smart Clock</h1>
+        <form action="/submit" method="POST">
+            <div class="form-row">
+                <label for="wifi">WiFi</label>
+                <input type="text" id="wifi" name="ssid" required>
+            </div>
+            <div class="form-row">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required>
+            </div>
+            <div class="checkbox-row">
+                <input type="checkbox" style="padding: 5px; margin-left: 5px; width: 16px; height: 16px;"
+                    id="showPassword" onclick="myFunction()">
+                <label for="showPassword">Show Password</label>
+            </div>
+            <div class="toggle-row">
+                <span>Show Temperature in Celsius</span>
+                <label class="switch">
+                    <input type="checkbox" name="celsius" checked>
+                    <span class="slider round"></span>
+                </label>
+            </div>
+            <div class="toggle-row">
+                <span>12-Hour Time Format</span>
+                <label class="switch">
+                    <input type="checkbox" name="time_format">
+                    <span class="slider round"></span>
+                </label>
+            </div>
+            <div class="form-row">
+                <label for="location">Location</label>
+                <select id="location" name="location" required>
+                    <option value="An Giang">An Giang</option>
+                    <option value="Ba Ria Vung Tau">Bà Rịa - Vũng Tàu</option>
+                    <option value="Bac Giang">Bắc Giang</option>
+                    <option value="Bac Kan">Bắc Kạn</option>
+                    <option value="Bac Lieu">Bạc Liêu</option>
+                    <option value="Bac Ninh">Bắc Ninh</option>
+                    <option value="Ben Tre">Bến Tre</option>
+                    <option value="Binh Dinh">Bình Định</option>
+                    <option value="Binh Duong">Bình Dương</option>
+                    <option value="Binh Phuoc">Bình Phước</option>
+                    <option value="Binh Thuan">Bình Thuận</option>
+                    <option value="Ca Mau">Cà Mau</option>
+                    <option value="Can Tho">Cần Thơ</option>
+                    <option value="Cao Bang">Cao Bằng</option>
+                    <option value="Da Nang">Đà Nẵng</option>
+                    <option value="Dak Lak">Đắk Lắk</option>
+                    <option value="Dak Nong">Đắk Nông</option>
+                    <option value="Dien Bien">Điện Biên</option>
+                    <option value="Dong Nai">Đồng Nai</option>
+                    <option value="Dong Thap">Đồng Tháp</option>
+                    <option value="Gia Lai">Gia Lai</option>
+                    <option value="Ha Giang">Hà Giang</option>
+                    <option value="Ha Nam">Hà Nam</option>
+                    <option value="Hanoi">Hà Nội</option>
+                    <option value="Ha Tinh">Hà Tĩnh</option>
+                    <option value="Hai Duong">Hải Dương</option>
+                    <option value="Hai Phong">Hải Phòng</option>
+                    <option value="Hau Giang">Hậu Giang</option>
+                    <option value="Hoa Binh">Hòa Bình</option>
+                    <option value="Ho Chi Minh">Hồ Chí Minh</option>
+                    <option value="Hung Yen">Hưng Yên</option>
+                    <option value="Khanh Hoa">Khánh Hòa</option>
+                    <option value="Kien Giang">Kiên Giang</option>
+                    <option value="Kon Tum">Kon Tum</option>
+                    <option value="Lai Chau">Lai Châu</option>
+                    <option value="Lam Dong">Lâm Đồng</option>
+                    <option value="Lang Son">Lạng Sơn</option>
+                    <option value="Lao Cai">Lào Cai</option>
+                    <option value="Long An">Long An</option>
+                    <option value="Nam Dinh">Nam Định</option>
+                    <option value="Nghe An">Nghệ An</option>
+                    <option value="Ninh Binh">Ninh Bình</option>
+                    <option value="Ninh Thuan">Ninh Thuận</option>
+                    <option value="Phu Tho">Phú Thọ</option>
+                    <option value="Phu Yen">Phú Yên</option>
+                    <option value="Quang Binh">Quảng Bình</option>
+                    <option value="Quang Nam">Quảng Nam</option>
+                    <option value="Quang Ngai">Quảng Ngãi</option>
+                    <option value="Quang Ninh">Quảng Ninh</option>
+                    <option value="Quang Tri">Quảng Trị</option>
+                    <option value="Soc Trang">Sóc Trăng</option>
+                    <option value="Son La">Sơn La</option>
+                    <option value="Tay Ninh">Tây Ninh</option>
+                    <option value="Thai Binh">Thái Bình</option>
+                    <option value="Thai Nguyen">Thái Nguyên</option>
+                    <option value="Thanh Hoa">Thanh Hóa</option>
+                    <option value="Thua Thien Hue">Thừa Thiên Huế</option>
+                    <option value="Tien Giang">Tiền Giang</option>
+                    <option value="Tra Vinh">Trà Vinh</option>
+                    <option value="Tuyen Quang">Tuyên Quang</option>
+                    <option value="Vinh Long">Vĩnh Long</option>
+                    <option value="Vinh Phuc">Vĩnh Phúc</option>
+                    <option value="Yen Bai">Yên Bái</option>
+                </select>
+            </div>
+            <div class="form-row">
+                <label for="gif">Gif</label>
+                <select id="gif" name="gif" required>
+                    <option value="1">1</option>
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                    <option value="4">4</option>
+                </select>
+            </div>
+            <input type="submit" value="Submit">
+        </form>
+    </div>
   </body>
 
   <script>
-      function myFunction() {
-          var x = document.getElementById("password");
-          if (x.type === "password") {
-              x.type = "text";
-          } else {
-              x.type = "password";
-          }
-      }
+    function myFunction() {
+        var x = document.getElementById("password");
+        if (x.type === "password") {
+            x.type = "text";
+        } else {
+            x.type = "password";
+        }
+    }
   </script>
 
   </html>
@@ -329,6 +399,7 @@ void handleSubmit() {
   location = server.arg("location");  // Nhận thông tin địa chỉ IP của Server từ người dùng
   formatTime12 = (server.arg("time_format") == "on") ? true : false;
   temperatureInC = (server.arg("celsius") == "on") ? true : false;
+  gif = server.arg("gif");
 
   /**
      * Hàm send(int code, const char* content_type, const char* content) trong WebServer là hàm để gửi trang thông báo kết nối thành công
@@ -336,7 +407,7 @@ void handleSubmit() {
      * @param {const char*} content_type là kiểu nội dung, ở đây là "text/html"
      * @param {const char*} content là nội dung trang thông báo kết nối thành công
      */
-  server.send(200, "text/html", "<h1 style='font-size: 48px; color:#2196F3; margin: 48px;'>Connecting...</h1>");
+  server.send(200, "text/html", "<h1 style='font-size: 72px; color:#2196F3; margin: 64px;'>Connecting...</h1>");
 
   /**
      * Hàm begin() trong Preferences là hàm để khởi tạo đối tượng Preferences, mở file cấu hình wifi trong bộ nhớ flash
@@ -357,6 +428,7 @@ void handleSubmit() {
   String tempStr = String(temperatureInC);
   preferences.putString("formatTime12", ftStr);
   preferences.putString("temperatureInC", tempStr);
+  preferences.putString("gif", gif);
 
   // Hàm end() trong Preferences là hàm để đóng file cấu hình wifi trong bộ nhớ flash
   preferences.end();
@@ -378,7 +450,11 @@ void updateScreen(String city, char *hour, char *minute, char *localTimeStr, flo
 
   // Condition
   sprite.setTextColor(TFT_WHITE, TFT_BLACK);
-  sprite.drawString(condition, 15, 40);
+  if(condition == "Moderate or heavy rain") {
+    sprite.drawString(condition, 0, 40);
+  } else {
+    sprite.drawString(condition, 35, 40);
+  }
 
   // uv
   sprite.fillRoundRect(183, 75, 52, 25, 10, TFT_WHITE);
@@ -415,13 +491,17 @@ void updateScreen(String city, char *hour, char *minute, char *localTimeStr, flo
 
   sprite.unloadFont();
 
+  uint8_t hourInt = atoi(hour);
+
   if (condition == "Overcast") {
     sprite.pushImage(180, 15, 50, 50, iconArray[5]);
   } else if (condition == "Moderate or heavy rain") {
     sprite.pushImage(180, 15, 50, 50, iconArray[8]);
-  } else if (condition == "Light drizzle") {
+  } else if (condition == "Light drizzle" && hourInt < 18 && hourInt >= 6) {
     sprite.pushImage(180, 15, 50, 50, iconArray[2]);
   } else if (condition == "Light rain") {
+    sprite.pushImage(180, 15, 50, 50, iconArray[7]);
+  } else if (condition == "Light drizzle" && (hourInt >= 18 || hourInt < 6)) {
     sprite.pushImage(180, 15, 50, 50, iconArray[7]);
   } else if (condition == "Clear") {
     sprite.pushImage(180, 15, 50, 50, iconArray[4]);
@@ -458,8 +538,19 @@ void updateScreen(String city, char *hour, char *minute, char *localTimeStr, flo
   }
   sprite.unloadFont();
 
-  sprite.pushImage(170, 170, 64, 64, myBitmapallArray[currentFrame]);
-  currentFrame = (currentFrame + 1) % myBitmapallArray_LEN;
+  if(gif == "1") {
+    sprite.pushImage(170, 170, 64, 64, gifArray[currentFrame]);
+    currentFrame = (currentFrame + 1) % 10;
+  } else if(gif == "2") {
+    sprite.pushImage(170, 170, 64, 64, gifArray[currentFrame+10]);
+    currentFrame = (currentFrame + 1) % 10;
+  } else if(gif == "3") {
+    sprite.pushImage(170, 170, 64, 64, gifArray[currentFrame+20]);
+    currentFrame = (currentFrame + 1) % 12;
+  } else {
+    sprite.pushImage(170, 170, 64, 64, gifArray[currentFrame]);
+    currentFrame = (currentFrame + 1) % 10;
+  }
 
   // Hiển thị sprite lên màn hình chính
   sprite.pushSprite(5, 0);
@@ -485,6 +576,7 @@ void setup() {
   location = preferences.getString("location", "");
   formatTime12 = preferences.getString("formatTime12", "0") == "1";
   temperatureInC = preferences.getString("temperatureInC", "0") == "1";
+  gif = preferences.getString("gif");
 
   preferences.end();  // Đóng flash
 
@@ -573,6 +665,7 @@ void loop() {
   location = preferences.getString("location", "");
   formatTime12 = preferences.getString("formatTime12", "0") == "1";
   temperatureInC = preferences.getString("temperatureInC", "0") == "1";
+  gif = preferences.getString("gif");
 
   preferences.end();  // Đóng flash
 
