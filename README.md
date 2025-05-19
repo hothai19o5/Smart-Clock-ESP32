@@ -11,6 +11,7 @@
 - Chạm để đổi mode.
 - Game tích công đức.
 
-## Hình ảnh của sản phẩm gốc
+## Hình ảnh của sản phẩm
 <p align="center">
-  <img src="https://down-vn.img.susercontent.com/file/sg-11134201-7rbmq-lnmkaa6nootscb.webp" alt="" width="60%">
+  <img src="https://github.com/user-attachments/assets/0d3c6fff-2cc8-4494-b1b9-16de2320ed1e" alt="" width="60%">
+</p>
